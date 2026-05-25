@@ -763,6 +763,7 @@ void Viewport::paintGL() {
     prgDrawPoints_.setUniform(GlUniform<bool>("drawInstances", false));
 
     prgDrawPoints_.setUniform(GlUniform<bool>("hideLabeledInstances", drawingOption_["hide labeled instances"]));
+    prgDrawPoints_.setUniform(GlUniform<bool>("renderPointsAsSpheres", renderPointsAsSpheres_));
 
     //    prgDrawPoints_.setUniform(GlUniform<bool>("carAsBase", drawingOption_["carAsBase"]));
     Eigen::Matrix4f plane_pose = Eigen::Matrix4f::Identity();

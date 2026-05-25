@@ -415,12 +415,14 @@ Mainframe::Mainframe() : mChangesSinceLastSave(false) {
   /** load labels and colors **/
   std::map<uint32_t, glow::GlColor> label_colors;
 
-  getLabelNames("labels.xml", label_names);
-  getLabelColors("labels.xml", label_colors);
+  readLabelConfig();
+
+  getLabelNames(labelFilename_, label_names);
+  getLabelColors(labelFilename_, label_colors);
 
   std::vector<uint32_t> instanceableLabels;
   std::vector<Label> annotations;
-  getLabels("labels.xml", annotations);
+  getLabels(labelFilename_, annotations);
   for (auto ann : annotations) {
     if (ann.instanceable) {
       instanceableLabels.push_back(ann.id);
@@ -654,7 +656,7 @@ void Mainframe::generateLabelButtons() {
 
   std::map<uint32_t, GlColor> label_colors;
 
-  getLabels("labels.xml", labelDefinitions_);
+  getLabels(labelFilename_, labelDefinitions_);
 
   labelButtonMapper = new QSignalMapper(this);
 
@@ -974,37 +976,51 @@ void Mainframe::readConfig() {
     std::getline(in, line);
 
     auto tokens = split(line, ":");
-    if (tokens[0] == "max scans") {
+    if (tokens.size() < 2) continue;
+    std::string key = trim(tokens[0]);
+    if (key == "max scans") {
       uint32_t numScans = boost::lexical_cast<uint32_t>(trim(tokens[1]));
       ui.mViewportXYZ->setMaximumScans(numScans);
       std::cout << "-- Setting 'max scans' to " << numScans << std::endl;
     }
 
-    if (tokens[0] == "tile size") {
+    if (key == "tile size") {
       float tileSize = boost::lexical_cast<float>(trim(tokens[1]));
       reader_.setTileSize(tileSize);
       std::cout << "-- Setting 'tile size' to " << tileSize << std::endl;
     }
 
-    if (tokens[0] == "max range") {
+    if (key == "max range") {
       float range = boost::lexical_cast<float>(trim(tokens[1]));
       ui.mViewportXYZ->setMaxRange(range);
       reader_.setMaximumDistance(range);
       std::cout << "-- Setting 'max range' to " << range << std::endl;
     }
 
-    if (tokens[0] == "min range") {
+    if (key == "min range") {
       float range = boost::lexical_cast<float>(trim(tokens[1]));
       ui.mViewportXYZ->setMinRange(range);
       std::cout << "-- Setting 'min range' to " << range << std::endl;
     }
-    if (tokens[0] == "flip mouse buttons") {
+    if (key == "point size") {
+      int32_t pointSize = boost::lexical_cast<int32_t>(trim(tokens[1]));
+      ui.spinPointSize->setValue(pointSize);
+      ui.mViewportXYZ->setPointSize(pointSize);
+      std::cout << "-- Setting 'point size' to " << pointSize << std::endl;
+    }
+    if (key == "render points as spheres") {
+      std::string value = trim(tokens[1]);
+      bool enabled = value == "true" || value == "True" || value == "1";
+      ui.mViewportXYZ->setRenderPointsAsSpheres(enabled);
+      std::cout << "-- Setting 'render points as spheres' to " << (enabled ? "true" : "false") << std::endl;
+    }
+    if (key == "flip mouse buttons") {
       float value = boost::lexical_cast<float>(trim(tokens[1]));
       ui.mViewportXYZ->setFlipMouseButtons((value == 0) ? false : true);
       std::cout << "-- Setting 'flip mouse buttons' to " << ((value == 0) ? "false" : "true") << std::endl;
     }
 
-    if (tokens[0] == "camera") {
+    if (key == "camera") {
       std::string value = trim(tokens[1]);
       auto cameras = ui.mViewportXYZ->getCameraNames();
       bool found = false;
@@ -1019,11 +1035,33 @@ void Mainframe::readConfig() {
       }
     }
 
-    if (tokens[0] == "add car points") {
+    if (key == "add car points") {
       std::string value = trim(tokens[1]);
       if (value == "true" || value == "True" || value == "1") {
         ui.chkAddCarPoints->setChecked(true);
       }
+    }
+  }
+
+  in.close();
+}
+
+void Mainframe::readLabelConfig() {
+  std::ifstream in("settings.cfg");
+
+  if (!in.is_open()) return;
+
+  std::string line;
+  in.peek();
+  while (in.good() && !in.eof()) {
+    std::getline(in, line);
+
+    auto tokens = split(line, ":");
+    if (tokens.size() < 2) continue;
+    std::string key = trim(tokens[0]);
+    if (key == "labels file") {
+      labelFilename_ = trim(tokens[1]);
+      std::cout << "-- Setting 'labels file' to " << labelFilename_ << std::endl;
     }
   }
 

@@ -53,6 +53,7 @@ class Mainframe : public QMainWindow {
   void closeEvent(QCloseEvent* event);
 
   void readConfig();
+  void readLabelConfig();
 
   void initializeIcons();
 
@@ -67,6 +68,7 @@ class Mainframe : public QMainWindow {
 
   std::vector<uint32_t> filteredLabels;
   std::string filename;
+  std::string labelFilename_{"labels.xml"};
 
   void keyPressEvent(QKeyEvent* event);
   void keyReleaseEvent(QKeyEvent* event);

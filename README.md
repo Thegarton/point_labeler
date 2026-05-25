@@ -65,6 +65,35 @@ add car points: true # add points at the origin of the sensor possibly caused by
 
 </pre>
 
+## CSV/LitePT bridge
+
+CSV frames and LitePT semantic masks can be converted to the KITTI-like layout expected by this tool:
+
+```bash
+python3 scripts/prepare_for_point_labeler.py \
+  --csv-dir /path/to/csv \
+  --litept-output-dir /path/to/litept_out \
+  --classes-yaml /path/to/noise_segmentation/configs/classes.yaml \
+  --out-dir /path/to/labeler_dataset \
+  --ins-path /path/to/ins
+```
+
+The generated dataset contains `velodyne/`, `labels/`, `poses.txt`, `calib.txt`, `labels.xml`,
+`bridge_manifest.json`, and `settings.cfg.example`. Use the generated `labels file` setting so the UI
+uses the same semantic ids as the LitePT masks.
+
+After manual editing and saving in the labeler, export corrected masks back to the LitePT layout:
+
+```bash
+python3 scripts/export_from_point_labeler.py \
+  --labeler-dir /path/to/labeler_dataset \
+  --out-dir /path/to/corrected_litept_out
+```
+
+If existing LitePT metadata contains `ego_pose`, it is preserved. Otherwise, when an INS file is
+available, the converter matches each frame to the nearest INS row by timestamp and writes `ego_pose`
+metadata plus KITTI-style `pose.txt` on export.
+
 
 
 

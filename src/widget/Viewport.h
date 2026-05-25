@@ -72,6 +72,10 @@ class Viewport : public QGLWidget {
 
   void setMinRange(float range);
   void setMaxRange(float range);
+  void setRenderPointsAsSpheres(bool value) {
+    renderPointsAsSpheres_ = value;
+    updateGL();
+  }
 
   void setGroundRemoval(bool value);
   void setGroundThreshold(float value);
@@ -288,6 +292,7 @@ class Viewport : public QGLWidget {
   glow::GlProgram prgDrawSelectedBoundingBox_;
 
   int32_t pointSize_{1};
+  bool renderPointsAsSpheres_{false};
 
   glow::GlUniform<Eigen::Matrix4f> mvp_{"mvp", Eigen::Matrix4f::Identity()};
   glow::GlUniform<Eigen::Matrix4f> mvp_inv_t_{"mvp_inv_t", Eigen::Matrix4f::Identity()};
