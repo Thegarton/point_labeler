@@ -71,16 +71,15 @@ CSV frames and LitePT semantic masks can be converted to the KITTI-like layout e
 
 ```bash
 python3 scripts/prepare_for_point_labeler.py \
-  --csv-dir /path/to/csv \
-  --litept-output-dir /path/to/litept_out \
-  --classes-yaml /path/to/noise_segmentation/configs/classes.yaml \
-  --out-dir /path/to/labeler_dataset \
-  --ins-path /path/to/ins
+  --csv-dir /path/to/data/2026_01_12_13_16_21_frames_192 \
+  --litept-output-dir /path/to/output/2026_01_12_13_16_21_frames_192/litept_waymo \
+  --out-dir /path/to/labeler_dataset
 ```
 
 The generated dataset contains `velodyne/`, `labels/`, `poses.txt`, `calib.txt`, `labels.xml`,
 `bridge_manifest.json`, and `settings.cfg.example`. Use the generated `labels file` setting so the UI
-uses the same semantic ids as the LitePT masks.
+uses the same semantic ids as the LitePT masks. Class names are read from the LitePT per-frame
+`metadata.json` `class_names` field; `--classes-yaml` is only a fallback when metadata is missing.
 
 After manual editing and saving in the labeler, export corrected masks back to the LitePT layout:
 
@@ -92,7 +91,9 @@ python3 scripts/export_from_point_labeler.py \
 
 If existing LitePT metadata contains `ego_pose`, it is preserved. Otherwise, when an INS file is
 available, the converter matches each frame to the nearest INS row by timestamp and writes `ego_pose`
-metadata plus KITTI-style `pose.txt` on export.
+metadata plus KITTI-style `pose.txt` on export. By default it looks for either `<csv-dir>/ins` as a
+single file or one `*.csv`/`*.tsv` file inside the `<csv-dir>/ins/` directory; use `--ins-path` to
+override that.
 
 
 

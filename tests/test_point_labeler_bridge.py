@@ -26,6 +26,20 @@ def write_classes(path: Path) -> None:
     )
 
 
+def write_metadata(path: Path, ego_pose: dict | None = None) -> None:
+    metadata = {
+        "frame_id": path.parent.name,
+        "label_space": "litept_waymo_semseg",
+        "litept_dataset": "waymo",
+        "class_names": ["Car", "Truck", "Road"],
+        "num_classes": 3,
+        "ignore_index": 255,
+    }
+    if ego_pose is not None:
+        metadata["ego_pose"] = ego_pose
+    path.write_text(json.dumps(metadata), encoding="utf-8")
+
+
 def write_xyz_csv(path: Path, *, height: int, width: int, timestamp_s: int = 10, timestamp_u: int = 260_000) -> None:
     with path.open("w", encoding="utf-8") as f:
         f.write("x,y,z,intensity,timestamp_s,timestamp_u\n")
@@ -38,9 +52,6 @@ def test_roundtrip_preserves_mask_and_existing_ego_pose(tmp_path: Path):
     csv_dir = tmp_path / "csv"
     csv_dir.mkdir()
     write_xyz_csv(csv_dir / "frame_000.csv", height=height, width=width)
-    classes = tmp_path / "classes.yaml"
-    write_classes(classes)
-
     litept = tmp_path / "litept"
     frame_out = litept / "frame_000"
     frame_out.mkdir(parents=True)
@@ -54,7 +65,7 @@ def test_roundtrip_preserves_mask_and_existing_ego_pose(tmp_path: Path):
         "rotation_matrix": [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
         "kitti_pose": [1.0, 0.0, 0.0, 4.0, 0.0, 1.0, 0.0, 5.0, 0.0, 0.0, 1.0, 6.0],
     }
-    (frame_out / "metadata.json").write_text(json.dumps({"ego_pose": ego_pose}), encoding="utf-8")
+    write_metadata(frame_out / "metadata.json", ego_pose=ego_pose)
 
     labeler_dir = tmp_path / "labeler"
     run_script(
@@ -63,8 +74,6 @@ def test_roundtrip_preserves_mask_and_existing_ego_pose(tmp_path: Path):
         str(csv_dir),
         "--litept-output-dir",
         str(litept),
-        "--classes-yaml",
-        str(classes),
         "--out-dir",
         str(labeler_dir),
         "--height",
@@ -89,6 +98,8 @@ def test_roundtrip_preserves_mask_and_existing_ego_pose(tmp_path: Path):
     np.testing.assert_array_equal(np.load(corrected / "frame_000" / "semantic_mask.npy"), mask)
     metadata = json.loads((corrected / "frame_000" / "metadata.json").read_text(encoding="utf-8"))
     assert metadata["ego_pose"] == ego_pose
+    assert metadata["class_names"] == ["Car", "Truck", "Road"]
+    assert metadata["confidence_mask"] is None
     assert metadata["pose"] == str(corrected / "frame_000" / "pose.txt")
     assert len((corrected / "frame_000" / "pose.txt").read_text(encoding="utf-8").strip().split()) == 12
 
@@ -98,22 +109,26 @@ def test_prepare_builds_ego_pose_from_ins_when_metadata_is_missing(tmp_path: Pat
     csv_dir = tmp_path / "csv"
     csv_dir.mkdir()
     write_xyz_csv(csv_dir / "frame_000.csv", height=height, width=width)
-    (csv_dir / "ins").write_text(
+    ins_dir = csv_dir / "ins"
+    ins_dir.mkdir()
+    (ins_dir / "ins_0.csv").write_text(
         "secs\tnsecs\tattitude_X\tattitude_Y\tattitude_Z\tlatitude\tlongitude\televation\tutmPosition_X\tutmPosition_Y\tutmPosition_Z\n"
         "10\t100000000\t0\t0\t0\t55.0\t37.0\t150.0\t1\t2\t3\n"
         "10\t300000000\t0\t0\t0\t55.0\t37.0\t150.0\t4\t5\t6\n",
         encoding="utf-8",
     )
-    classes = tmp_path / "classes.yaml"
-    write_classes(classes)
+    litept = tmp_path / "litept"
+    frame_out = litept / "frame_000"
+    frame_out.mkdir(parents=True)
+    write_metadata(frame_out / "metadata.json")
 
     labeler_dir = tmp_path / "labeler"
     run_script(
         "prepare_for_point_labeler.py",
         "--csv-dir",
         str(csv_dir),
-        "--classes-yaml",
-        str(classes),
+        "--litept-output-dir",
+        str(litept),
         "--out-dir",
         str(labeler_dir),
         "--height",

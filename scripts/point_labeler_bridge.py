@@ -349,8 +349,7 @@ def flatten_kitti_pose(rotation: list[list[float]], translation: list[float]) ->
     return pose[:3, :].reshape(-1).tolist()
 
 
-def write_labels_xml(path: Path, classes_yaml: Path) -> None:
-    classes = read_semantic_classes(classes_yaml)
+def write_labels_xml(path: Path, classes: list[tuple[str, int]]) -> None:
     root = ET.Element("config")
     for name, label_id in classes:
         label = ET.SubElement(root, "label")
@@ -366,6 +365,20 @@ def write_labels_xml(path: Path, classes_yaml: Path) -> None:
     tree = ET.ElementTree(root)
     path.parent.mkdir(parents=True, exist_ok=True)
     tree.write(path, encoding="utf-8", xml_declaration=True)
+
+
+def classes_from_metadata(metadata: dict[str, Any]) -> list[tuple[str, int]]:
+    class_names = metadata.get("class_names")
+    if not isinstance(class_names, list) or not class_names:
+        return []
+
+    classes = [(str(name), idx) for idx, name in enumerate(class_names)]
+    ignore_index = metadata.get("ignore_index")
+    if ignore_index is not None:
+        ignore_id = int(ignore_index)
+        if all(label_id != ignore_id for _, label_id in classes):
+            classes.append(("ignore", ignore_id))
+    return sorted(classes, key=lambda item: item[1])
 
 
 def read_semantic_classes(path: Path) -> list[tuple[str, int]]:
@@ -401,7 +414,8 @@ def read_semantic_classes_without_yaml(path: Path) -> list[tuple[str, int]]:
 
 
 def label_color(name: str, label_id: int) -> tuple[int, int, int]:
-    if label_id == 0:
+    lowered = name.strip().lower()
+    if label_id == 0 and lowered in {"background", "unlabeled", "void"}:
         return 0, 0, 0
     if label_id == 255:
         return 120, 120, 120

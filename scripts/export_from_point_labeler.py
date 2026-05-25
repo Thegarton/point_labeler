@@ -40,14 +40,17 @@ def main() -> None:
         mask_path = frame_out / "semantic_mask.npy"
         np.save(mask_path, mask.astype(np.uint16, copy=False))
 
-        metadata = {
-            "frame_id": frame_id,
-            "semantic_mask": str(mask_path),
-            "confidence_mask": None,
-            "pose": None,
-            "pseudo_label_version": args.pseudo_label_version,
-            "provenance": args.provenance,
-        }
+        metadata = dict(frame.get("source_metadata_payload") or {})
+        metadata.update(
+            {
+                "frame_id": frame_id,
+                "semantic_mask": str(mask_path),
+                "confidence_mask": None,
+                "pose": None,
+                "pseudo_label_version": args.pseudo_label_version,
+                "provenance": args.provenance,
+            }
+        )
 
         ego_pose = frame.get("ego_pose")
         if ego_pose is not None:
