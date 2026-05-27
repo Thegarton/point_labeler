@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
 from pathlib import Path
 
 import numpy as np
@@ -44,6 +45,7 @@ def main() -> None:
 
     velodyne_dir = out_dir / "velodyne"
     labels_dir = out_dir / "labels"
+    image_dir = out_dir / "image_2"
     velodyne_dir.mkdir(parents=True, exist_ok=True)
     labels_dir.mkdir(parents=True, exist_ok=True)
 
@@ -94,6 +96,7 @@ def main() -> None:
 
         frame.points_flat.astype(np.float32, copy=False).tofile(velodyne_dir / f"{frame_id}.bin")
         mask.reshape(-1).astype(np.uint32, copy=False).tofile(labels_dir / f"{frame_id}.label")
+        image_path = copy_frame_image(csv_dir=csv_dir, image_dir=image_dir, frame_id=frame_id)
 
         if ego_pose is not None and len(ego_pose.get("kitti_pose", [])) != 12:
             raise ValueError(f"ego_pose.kitti_pose for {frame_id} must have 12 values, got {len(ego_pose.get('kitti_pose', []))}")
@@ -106,6 +109,7 @@ def main() -> None:
                 "source_semantic_mask": str(mask_path) if mask_path is not None and mask_path.exists() else None,
                 "velodyne": str(velodyne_dir / f"{frame_id}.bin"),
                 "label": str(labels_dir / f"{frame_id}.label"),
+                "image": str(image_path) if image_path is not None else None,
                 "timestamp_us": frame.timestamp_us,
                 "timestamp_s": frame.timestamp_s,
                 "timestamp_u": frame.timestamp_u,
@@ -172,6 +176,17 @@ def resolve_ins_file(path: Path) -> Path:
             raise FileNotFoundError(f"No INS file found in {path}")
         raise ValueError(f"Multiple INS files found in {path}; pass --ins-path explicitly")
     raise FileNotFoundError(f"INS path does not exist: {path}")
+
+
+def copy_frame_image(*, csv_dir: Path, image_dir: Path, frame_id: str) -> Path | None:
+    for suffix in (".jpg", ".jpeg", ".png"):
+        candidate = csv_dir / f"{frame_id}{suffix}"
+        if candidate.exists():
+            image_dir.mkdir(parents=True, exist_ok=True)
+            out = image_dir / f"{frame_id}{suffix}"
+            shutil.copy2(candidate, out)
+            return out
+    return None
 
 
 def resolve_class_definitions(

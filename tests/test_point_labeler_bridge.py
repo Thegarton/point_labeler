@@ -52,6 +52,7 @@ def test_roundtrip_preserves_mask_and_existing_ego_pose(tmp_path: Path):
     csv_dir = tmp_path / "csv"
     csv_dir.mkdir()
     write_xyz_csv(csv_dir / "frame_000.csv", height=height, width=width)
+    (csv_dir / "frame_000.jpg").write_bytes(b"fake-jpeg")
     litept = tmp_path / "litept"
     frame_out = litept / "frame_000"
     frame_out.mkdir(parents=True)
@@ -84,11 +85,13 @@ def test_roundtrip_preserves_mask_and_existing_ego_pose(tmp_path: Path):
 
     assert (labeler_dir / "velodyne" / "frame_000.bin").exists()
     assert (labeler_dir / "labels" / "frame_000.label").exists()
+    assert (labeler_dir / "image_2" / "frame_000.jpg").read_bytes() == b"fake-jpeg"
     pose_values = [float(x) for x in (labeler_dir / "poses.txt").read_text(encoding="utf-8").strip().split()]
     assert pose_values == [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0]
     manifest = json.loads((labeler_dir / "bridge_manifest.json").read_text(encoding="utf-8"))
     assert manifest["pose_mode"] == "relative_ego"
     assert manifest["frames"][0]["ego_pose"] == ego_pose
+    assert manifest["frames"][0]["image"] == str(labeler_dir / "image_2" / "frame_000.jpg")
     assert manifest["frames"][0]["visualization_pose"] == pose_values
     settings = (labeler_dir / "settings.cfg").read_text(encoding="utf-8")
     assert f"labels file: {labeler_dir / 'labels.xml'}" in settings
@@ -108,6 +111,7 @@ def test_roundtrip_preserves_mask_and_existing_ego_pose(tmp_path: Path):
     assert metadata["ego_pose"] == ego_pose
     assert metadata["class_names"] == ["Car", "Truck", "Road"]
     assert metadata["confidence_mask"] is None
+    assert metadata["manual_reviewed"] is True
     assert metadata["pose"] == str(corrected / "frame_000" / "pose.txt")
     assert len((corrected / "frame_000" / "pose.txt").read_text(encoding="utf-8").strip().split()) == 12
 

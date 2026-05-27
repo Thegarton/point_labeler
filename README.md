@@ -80,6 +80,8 @@ The generated dataset contains `velodyne/`, `labels/`, `poses.txt`, `calib.txt`,
 `bridge_manifest.json`, `settings.cfg`, and `settings.cfg.example`. Use the generated `labels file` setting so the UI
 uses the same semantic ids as the LitePT masks. Class names are read from the LitePT per-frame
 `metadata.json` `class_names` field; `--classes-yaml` is only a fallback when metadata is missing.
+If the CSV directory contains synced camera frames named `frame_id.jpg`, `frame_id.jpeg`, or `frame_id.png`,
+they are copied into `image_2/` and recorded in `bridge_manifest.json`.
 For labeler visualization, `poses.txt` is written relative to the earliest ego pose. The default
 `--visualization-axis-mode ego_y_forward` maps ego/INS `+Y` motion to KITTI/Velodyne `+X` forward;
 use `--visualization-axis-mode kitti_x_forward` if your pose matrices are already in KITTI axes.

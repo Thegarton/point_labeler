@@ -49,6 +49,7 @@ def main() -> None:
                 "pose": None,
                 "pseudo_label_version": args.pseudo_label_version,
                 "provenance": args.provenance,
+                "manual_reviewed": args.manual_reviewed,
             }
         )
 
@@ -73,6 +74,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--width", type=int, default=None)
     parser.add_argument("--pseudo-label-version", default="manual_point_labeler_v0")
     parser.add_argument("--provenance", default="human_corrected")
+    parser.add_argument("--manual-reviewed", dest="manual_reviewed", action="store_true", default=True)
+    parser.add_argument("--no-manual-reviewed", dest="manual_reviewed", action="store_false")
     return parser.parse_args()
 
 
