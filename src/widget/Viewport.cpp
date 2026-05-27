@@ -522,7 +522,8 @@ void Viewport::updateLabels() {
       uint32_t scanidx = indexes[i].x;
       uint32_t idx = indexes[i].y;
       (*labels_[scanidx])[idx] = labels[i];
-      labeledCount_ += (labels[i] != 0);
+      uint32_t semanticLabel = labels[i] & uint32_t(0xFFFF);
+      labeledCount_ += (semanticLabel != 0 || zeroLabelAsClass_);
     }
 
     count++;
@@ -764,6 +765,7 @@ void Viewport::paintGL() {
 
     prgDrawPoints_.setUniform(GlUniform<bool>("hideLabeledInstances", drawingOption_["hide labeled instances"]));
     prgDrawPoints_.setUniform(GlUniform<bool>("renderPointsAsSpheres", renderPointsAsSpheres_));
+    prgDrawPoints_.setUniform(GlUniform<bool>("zeroLabelAsClass", zeroLabelAsClass_));
 
     //    prgDrawPoints_.setUniform(GlUniform<bool>("carAsBase", drawingOption_["carAsBase"]));
     Eigen::Matrix4f plane_pose = Eigen::Matrix4f::Identity();

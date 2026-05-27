@@ -67,7 +67,6 @@ def main() -> None:
         "ins_path": str(ins_path) if ins_path is not None else None,
         "frames": [],
     }
-    poses: list[list[float]] = []
     max_abs_xy = 0.0
     max_range = 0.0
 
@@ -98,9 +97,6 @@ def main() -> None:
         if ego_pose is not None and len(ego_pose.get("kitti_pose", [])) != 12:
             raise ValueError(f"ego_pose.kitti_pose for {frame_id} must have 12 values, got {len(ego_pose.get('kitti_pose', []))}")
 
-        visualization_pose = visualization_pose_for(args.pose_mode)
-        poses.append(visualization_pose)
-
         manifest["frames"].append(
             {
                 "frame_id": frame_id,
@@ -116,10 +112,14 @@ def main() -> None:
                 "shape": [args.height, args.width],
                 "frame_meta": frame.meta,
                 "ego_pose": ego_pose,
-                "visualization_pose": visualization_pose,
+                "visualization_pose": None,
                 "source_metadata_payload": metadata,
             }
         )
+
+    poses = visualization_poses_for(args.pose_mode, manifest["frames"])
+    for frame_manifest, visualization_pose in zip(manifest["frames"], poses):
+        frame_manifest["visualization_pose"] = visualization_pose
 
     (out_dir / "poses.txt").write_text(
         "".join(" ".join(fmt_float(value) for value in pose) + "\n" for pose in poses),
@@ -141,7 +141,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--out-dir", required=True)
     parser.add_argument("--ins-path", default=None)
     parser.add_argument("--overwrite-labels-xml", action="store_true")
-    parser.add_argument("--pose-mode", choices=["local_identity"], default="local_identity")
+    parser.add_argument("--pose-mode", choices=["relative_ego", "local_identity"], default="relative_ego")
     parser.add_argument("--height", type=int, default=DEFAULT_HEIGHT)
     parser.add_argument("--width", type=int, default=DEFAULT_WIDTH)
     return parser.parse_args()
@@ -187,10 +187,56 @@ def resolve_class_definitions(
     raise ValueError("Could not infer classes from LitePT metadata. Pass --classes-yaml as a fallback.")
 
 
-def visualization_pose_for(pose_mode: str) -> list[float]:
+def visualization_poses_for(pose_mode: str, frames: list[dict]) -> list[list[float]]:
     if pose_mode == "local_identity":
-        return list(IDENTITY_KITTI_POSE)
+        return [list(IDENTITY_KITTI_POSE) for _ in frames]
+    if pose_mode == "relative_ego":
+        return relative_ego_poses(frames)
     raise ValueError(f"Unsupported pose mode: {pose_mode}")
+
+
+def relative_ego_poses(frames: list[dict]) -> list[list[float]]:
+    valid: list[tuple[int, int, np.ndarray]] = []
+    for index, frame in enumerate(frames):
+        ego_pose = frame.get("ego_pose")
+        if not ego_pose:
+            continue
+        kitti_pose = ego_pose.get("kitti_pose")
+        if not kitti_pose:
+            continue
+        timestamp = ego_pose.get("timestamp_us", ego_pose.get("source_timestamp_us", frame.get("timestamp_us")))
+        if timestamp is None:
+            timestamp = index
+        valid.append((int(timestamp), index, kitti_pose_to_matrix(kitti_pose)))
+
+    if not valid:
+        return [list(IDENTITY_KITTI_POSE) for _ in frames]
+
+    _, _, first_pose = min(valid, key=lambda item: (item[0], item[1]))
+    origin = np.linalg.inv(first_pose)
+    matrices_by_index = {index: matrix for _, index, matrix in valid}
+
+    poses: list[list[float]] = []
+    for index in range(len(frames)):
+        matrix = matrices_by_index.get(index)
+        if matrix is None:
+            poses.append(list(IDENTITY_KITTI_POSE))
+            continue
+        poses.append(matrix_to_kitti_pose(origin @ matrix))
+    return poses
+
+
+def kitti_pose_to_matrix(values: list[float]) -> np.ndarray:
+    arr = np.asarray(values, dtype=np.float64)
+    if arr.shape != (12,):
+        raise ValueError(f"KITTI pose must have 12 values, got {arr.shape}")
+    matrix = np.eye(4, dtype=np.float64)
+    matrix[:3, :4] = arr.reshape(3, 4)
+    return matrix
+
+
+def matrix_to_kitti_pose(matrix: np.ndarray) -> list[float]:
+    return [float(value) for value in np.asarray(matrix, dtype=np.float64)[:3, :4].reshape(-1)]
 
 
 def frame_extent(points_flat: np.ndarray) -> tuple[float, float]:

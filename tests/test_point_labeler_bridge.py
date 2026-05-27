@@ -87,7 +87,7 @@ def test_roundtrip_preserves_mask_and_existing_ego_pose(tmp_path: Path):
     pose_values = [float(x) for x in (labeler_dir / "poses.txt").read_text(encoding="utf-8").strip().split()]
     assert pose_values == [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0]
     manifest = json.loads((labeler_dir / "bridge_manifest.json").read_text(encoding="utf-8"))
-    assert manifest["pose_mode"] == "local_identity"
+    assert manifest["pose_mode"] == "relative_ego"
     assert manifest["frames"][0]["ego_pose"] == ego_pose
     assert manifest["frames"][0]["visualization_pose"] == pose_values
     settings = (labeler_dir / "settings.cfg").read_text(encoding="utf-8")
@@ -182,3 +182,68 @@ def test_prepare_does_not_overwrite_existing_labels_xml_without_flag(tmp_path: P
     )
 
     assert (labeler_dir / "labels.xml").read_text(encoding="utf-8") == custom_xml
+
+
+def test_prepare_writes_relative_ego_poses_from_earliest_timestamp(tmp_path: Path):
+    height, width = 1, 1
+    csv_dir = tmp_path / "csv"
+    csv_dir.mkdir()
+    write_xyz_csv(csv_dir / "frame_000.csv", height=height, width=width, timestamp_s=20, timestamp_u=0)
+    write_xyz_csv(csv_dir / "frame_001.csv", height=height, width=width, timestamp_s=10, timestamp_u=0)
+
+    litept = tmp_path / "litept"
+    for frame_id, timestamp_us, tx in (("frame_000", 20_000_000, 4.0), ("frame_001", 10_000_000, 1.0)):
+        frame_out = litept / frame_id
+        frame_out.mkdir(parents=True)
+        ego_pose = {
+            "timestamp_us": timestamp_us,
+            "source_timestamp_us": timestamp_us,
+            "delta_us": 0,
+            "translation": [tx, 0.0, 0.0],
+            "rotation_matrix": [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
+            "kitti_pose": [1.0, 0.0, 0.0, tx, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0],
+        }
+        write_metadata(frame_out / "metadata.json", ego_pose=ego_pose)
+
+    labeler_dir = tmp_path / "labeler"
+    run_script(
+        "prepare_for_point_labeler.py",
+        "--csv-dir",
+        str(csv_dir),
+        "--litept-output-dir",
+        str(litept),
+        "--out-dir",
+        str(labeler_dir),
+        "--height",
+        str(height),
+        "--width",
+        str(width),
+    )
+
+    pose_values = [float(x) for x in (labeler_dir / "poses.txt").read_text(encoding="utf-8").strip().split()]
+    assert pose_values == [
+        1.0,
+        0.0,
+        0.0,
+        3.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+    ]

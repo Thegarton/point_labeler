@@ -14,6 +14,7 @@ uniform mat4 mvp;
 
 uniform bool useRemission;
 uniform bool useColor;
+uniform bool zeroLabelAsClass;
 
 
 uniform bool removeGround;
@@ -130,11 +131,10 @@ void main()
   { 
         
       in_remission = clamp(in_remission, 0.0, 1.0);
-      if(label != uint(0))
+      if(label != uint(0) || zeroLabelAsClass)
       {
 	      
 	      float r = in_remission * 0.25 + 0.75; // ensure r in [0.75, 1.0]
-	      if(label == uint(0)) r = in_remission * 0.7 + 0.3; // r in [0.3, 1.0]
 	      vec3 hsv = rgb2hsv(in_color.rgb);
 	      hsv.b = max(hsv.b, 0.8);
 	      

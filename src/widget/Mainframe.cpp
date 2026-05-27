@@ -7,6 +7,8 @@
 #include <QtWidgets/QFileDialog>
 #include <QtWidgets/QMessageBox>
 #include <boost/lexical_cast.hpp>
+#include <algorithm>
+#include <cctype>
 #include <fstream>
 #include <iostream>
 #include <map>
@@ -722,8 +724,17 @@ void Mainframe::reloadLabelDefinitions() {
 
   std::vector<uint32_t> instanceableLabels;
   std::vector<Label> annotations;
+  bool zeroLabelAsClass = false;
   getLabels(labelFilename_, annotations);
   for (auto ann : annotations) {
+    if (ann.id == 0) {
+      std::string labelName = ann.name;
+      std::transform(labelName.begin(), labelName.end(), labelName.begin(),
+                     [](unsigned char c) { return std::tolower(c); });
+      zeroLabelAsClass = labelName != "unlabeled" && labelName != "unlabelled" && labelName != "background" &&
+                         labelName != "no label" && labelName != "none" && labelName != "void" &&
+                         labelName != "ignore" && labelName != "ignored";
+    }
     if (ann.instanceable) {
       instanceableLabels.push_back(ann.id);
       instanceableLabels.push_back(ann.id_moving);
@@ -734,6 +745,7 @@ void Mainframe::reloadLabelDefinitions() {
             << " instanceable labels in " << labelFilename_ << std::endl;
 
   ui.mViewportXYZ->setLabelColors(label_colors);
+  ui.mViewportXYZ->setZeroLabelAsClass(zeroLabelAsClass);
   ui.mViewportXYZ->setInstanceableLabels(instanceableLabels);
   generateLabelButtons();
   updateLabelButtons();
