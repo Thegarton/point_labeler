@@ -412,31 +412,9 @@ Mainframe::Mainframe() : mChangesSinceLastSave(false) {
                          .arg(QString::number(seconds), 2, '0'));
   });
 
-  /** load labels and colors **/
-  std::map<uint32_t, glow::GlColor> label_colors;
-
   readLabelConfig();
-
-  getLabelNames(labelFilename_, label_names);
-  getLabelColors(labelFilename_, label_colors);
-
-  std::vector<uint32_t> instanceableLabels;
-  std::vector<Label> annotations;
-  getLabels(labelFilename_, annotations);
-  for (auto ann : annotations) {
-    if (ann.instanceable) {
-      instanceableLabels.push_back(ann.id);
-      instanceableLabels.push_back(ann.id_moving);
-    }
-  }
-
-  std::cout << "Found " << instanceableLabels.size() << " instanceable labels." << std::endl;
-
-  ui.mViewportXYZ->setLabelColors(label_colors);
-  ui.mViewportXYZ->setInstanceableLabels(instanceableLabels);
+  reloadLabelDefinitions();
   ui.mViewportXYZ->setGroundThreshold(ui.spinGroundThreshold->value());
-
-  generateLabelButtons();
 
   readConfig();
 
@@ -533,6 +511,19 @@ void Mainframe::open() {
       return;
     }
 
+    labelFilename_ = "labels.xml";
+    readLabelConfig();
+    if (base_dir.exists("settings.cfg")) {
+      std::string datasetConfig = base_dir.filePath("settings.cfg").toStdString();
+      readLabelConfig(datasetConfig);
+      readConfig(datasetConfig);
+    }
+    if (base_dir.exists("labels.xml")) {
+      labelFilename_ = base_dir.filePath("labels.xml").toStdString();
+      std::cout << "-- Using dataset labels file " << labelFilename_ << std::endl;
+    }
+    reloadLabelDefinitions();
+
     reader_.initialize(retValue);
 
     ui.mViewportXYZ->setMaximumInstanceIds(reader_.getMaxInstanceIds());
@@ -554,6 +545,7 @@ void Mainframe::open() {
     lastDirectory = base_dir.absolutePath();
 
     changeMode(Viewport::NONE, true);
+    ui.mViewportXYZ->centerOnCurrentTile();
 
     QString title = "Point Labeler - ";
     title += QFileInfo(retValue).completeBaseName();
@@ -654,8 +646,6 @@ void Mainframe::changeMode(int mode, bool checked) {
 void Mainframe::generateLabelButtons() {
   const int BtnsPerRow = 5;
 
-  std::map<uint32_t, GlColor> label_colors;
-
   getLabels(labelFilename_, labelDefinitions_);
 
   labelButtonMapper = new QSignalMapper(this);
@@ -694,6 +684,59 @@ void Mainframe::generateLabelButtons() {
   connect(labelButtonMapper, SIGNAL(mapped(QWidget*)), this, SLOT(labelBtnReleased(QWidget*)));
 
   if (labelButtons.size() > 0) labelBtnReleased(labelButtons[0]);
+}
+
+void Mainframe::clearLabelButtons() {
+  if (labelButtonMapper != nullptr) {
+    delete labelButtonMapper;
+    labelButtonMapper = nullptr;
+  }
+
+  for (auto btn : labelButtons) {
+    ui.labelsGroupBox->removeWidget(btn);
+    delete btn;
+  }
+
+  labelDefinitions_.clear();
+  labelButtons.clear();
+  labelButtonIdx_.clear();
+  label_names.clear();
+  catButtons_.clear();
+  filteredLabels.clear();
+  selectedLabelButtonIdx_ = -1;
+
+  ui.cmbRootCategory->blockSignals(true);
+  ui.cmbRootCategory->clear();
+  ui.cmbRootCategory->addItem("all");
+  ui.cmbRootCategory->addItem("recently");
+  ui.cmbRootCategory->setCurrentText("all");
+  ui.cmbRootCategory->blockSignals(false);
+}
+
+void Mainframe::reloadLabelDefinitions() {
+  clearLabelButtons();
+
+  std::map<uint32_t, glow::GlColor> label_colors;
+  getLabelNames(labelFilename_, label_names);
+  getLabelColors(labelFilename_, label_colors);
+
+  std::vector<uint32_t> instanceableLabels;
+  std::vector<Label> annotations;
+  getLabels(labelFilename_, annotations);
+  for (auto ann : annotations) {
+    if (ann.instanceable) {
+      instanceableLabels.push_back(ann.id);
+      instanceableLabels.push_back(ann.id_moving);
+    }
+  }
+
+  std::cout << "Found " << annotations.size() << " labels and " << instanceableLabels.size()
+            << " instanceable labels in " << labelFilename_ << std::endl;
+
+  ui.mViewportXYZ->setLabelColors(label_colors);
+  ui.mViewportXYZ->setInstanceableLabels(instanceableLabels);
+  generateLabelButtons();
+  updateLabelButtons();
 }
 
 void Mainframe::updateFiltering(bool value) {
@@ -844,6 +887,7 @@ void Mainframe::updateScans() {
   statusBar()->clearMessage();
 
   ui.mViewportXYZ->setPoints(points_, labels_);
+  ui.mViewportXYZ->centerOnCurrentTile();
   ui.sldTimeline->setMaximum(indexes_.size() - 1);
   ui.sldTimeline->setValue(0);
   ui.wgtTileSelector->setEnabled(true);
@@ -965,8 +1009,8 @@ void Mainframe::backward() {
   }
 }
 
-void Mainframe::readConfig() {
-  std::ifstream in("settings.cfg");
+void Mainframe::readConfig(const std::string& filename) {
+  std::ifstream in(filename);
 
   if (!in.is_open()) return;
 
@@ -1046,8 +1090,8 @@ void Mainframe::readConfig() {
   in.close();
 }
 
-void Mainframe::readLabelConfig() {
-  std::ifstream in("settings.cfg");
+void Mainframe::readLabelConfig(const std::string& filename) {
+  std::ifstream in(filename);
 
   if (!in.is_open()) return;
 

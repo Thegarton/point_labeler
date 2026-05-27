@@ -84,7 +84,15 @@ def test_roundtrip_preserves_mask_and_existing_ego_pose(tmp_path: Path):
 
     assert (labeler_dir / "velodyne" / "frame_000.bin").exists()
     assert (labeler_dir / "labels" / "frame_000.label").exists()
-    assert len((labeler_dir / "poses.txt").read_text(encoding="utf-8").strip().split()) == 12
+    pose_values = [float(x) for x in (labeler_dir / "poses.txt").read_text(encoding="utf-8").strip().split()]
+    assert pose_values == [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0]
+    manifest = json.loads((labeler_dir / "bridge_manifest.json").read_text(encoding="utf-8"))
+    assert manifest["pose_mode"] == "local_identity"
+    assert manifest["frames"][0]["ego_pose"] == ego_pose
+    assert manifest["frames"][0]["visualization_pose"] == pose_values
+    settings = (labeler_dir / "settings.cfg").read_text(encoding="utf-8")
+    assert f"labels file: {labeler_dir / 'labels.xml'}" in settings
+    assert "render points as spheres: true" in settings
 
     corrected = tmp_path / "corrected"
     run_script(
@@ -142,3 +150,35 @@ def test_prepare_builds_ego_pose_from_ins_when_metadata_is_missing(tmp_path: Pat
     assert ego_pose["source_timestamp_us"] == 10_300_000
     assert ego_pose["delta_us"] == 40_000
     assert ego_pose["translation"] == [4.0, 5.0, 6.0]
+
+
+def test_prepare_does_not_overwrite_existing_labels_xml_without_flag(tmp_path: Path):
+    height, width = 2, 2
+    csv_dir = tmp_path / "csv"
+    csv_dir.mkdir()
+    write_xyz_csv(csv_dir / "frame_000.csv", height=height, width=width)
+    litept = tmp_path / "litept"
+    frame_out = litept / "frame_000"
+    frame_out.mkdir(parents=True)
+    write_metadata(frame_out / "metadata.json")
+
+    labeler_dir = tmp_path / "labeler"
+    labeler_dir.mkdir()
+    custom_xml = "<config><label><id>7</id><name>custom</name><color>1 2 3</color><root>mine</root></label></config>\n"
+    (labeler_dir / "labels.xml").write_text(custom_xml, encoding="utf-8")
+
+    run_script(
+        "prepare_for_point_labeler.py",
+        "--csv-dir",
+        str(csv_dir),
+        "--litept-output-dir",
+        str(litept),
+        "--out-dir",
+        str(labeler_dir),
+        "--height",
+        str(height),
+        "--width",
+        str(width),
+    )
+
+    assert (labeler_dir / "labels.xml").read_text(encoding="utf-8") == custom_xml

@@ -50,10 +50,12 @@ class Mainframe : public QMainWindow {
   void setCurrentScanIdx(int32_t idx);
 
   void generateLabelButtons();
+  void clearLabelButtons();
+  void reloadLabelDefinitions();
   void closeEvent(QCloseEvent* event);
 
-  void readConfig();
-  void readLabelConfig();
+  void readConfig(const std::string& filename = "settings.cfg");
+  void readLabelConfig(const std::string& filename = "settings.cfg");
 
   void initializeIcons();
 
@@ -78,7 +80,7 @@ class Mainframe : public QMainWindow {
 
  private:
   Ui::MainWindow ui;
-  QSignalMapper* labelButtonMapper;
+  QSignalMapper* labelButtonMapper{nullptr};
   std::vector<Label> labelDefinitions_;
   std::vector<LabelButton*> labelButtons;
   std::map<LabelButton*, int32_t> labelButtonIdx_;

@@ -22,6 +22,11 @@ from point_labeler_bridge import (
     write_labels_xml,
 )
 
+DEFAULT_TILE_SIZE = 100.0
+DEFAULT_MAX_RANGE = 200.0
+TILE_MARGIN = 20.0
+RANGE_MARGIN = 10.0
+
 
 def main() -> None:
     args = parse_args()
@@ -48,22 +53,30 @@ def main() -> None:
         classes_yaml=classes_yaml,
         csv_files=csv_files,
     )
-    write_labels_xml(out_dir / "labels.xml", class_definitions)
+    labels_xml = out_dir / "labels.xml"
+    if args.overwrite_labels_xml or not labels_xml.exists():
+        write_labels_xml(labels_xml, class_definitions)
 
     manifest: dict = {
         "version": 1,
         "height": args.height,
         "width": args.width,
+        "pose_mode": args.pose_mode,
         "class_source": class_source,
         "classes": [{"name": name, "id": label_id} for name, label_id in class_definitions],
         "ins_path": str(ins_path) if ins_path is not None else None,
         "frames": [],
     }
     poses: list[list[float]] = []
+    max_abs_xy = 0.0
+    max_range = 0.0
 
     for csv_path in csv_files:
         frame_id = csv_path.stem
         frame = load_csv_frame(csv_path, frame_id=frame_id, height=args.height, width=args.width)
+        frame_max_abs_xy, frame_max_range = frame_extent(frame.points_flat)
+        max_abs_xy = max(max_abs_xy, frame_max_abs_xy)
+        max_range = max(max_range, frame_max_range)
 
         metadata_path = litept_output_dir / frame_id / "metadata.json" if litept_output_dir is not None else None
         metadata = load_metadata(metadata_path) if metadata_path is not None else {}
@@ -82,10 +95,11 @@ def main() -> None:
         frame.points_flat.astype(np.float32, copy=False).tofile(velodyne_dir / f"{frame_id}.bin")
         mask.reshape(-1).astype(np.uint32, copy=False).tofile(labels_dir / f"{frame_id}.label")
 
-        kitti_pose = ego_pose.get("kitti_pose") if ego_pose else IDENTITY_KITTI_POSE
-        if len(kitti_pose) != 12:
-            raise ValueError(f"ego_pose.kitti_pose for {frame_id} must have 12 values, got {len(kitti_pose)}")
-        poses.append([float(value) for value in kitti_pose])
+        if ego_pose is not None and len(ego_pose.get("kitti_pose", [])) != 12:
+            raise ValueError(f"ego_pose.kitti_pose for {frame_id} must have 12 values, got {len(ego_pose.get('kitti_pose', []))}")
+
+        visualization_pose = visualization_pose_for(args.pose_mode)
+        poses.append(visualization_pose)
 
         manifest["frames"].append(
             {
@@ -102,6 +116,7 @@ def main() -> None:
                 "shape": [args.height, args.width],
                 "frame_meta": frame.meta,
                 "ego_pose": ego_pose,
+                "visualization_pose": visualization_pose,
                 "source_metadata_payload": metadata,
             }
         )
@@ -111,7 +126,9 @@ def main() -> None:
         encoding="utf-8",
     )
     (out_dir / "bridge_manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
-    write_settings_hint(out_dir)
+    settings_text = settings_content(out_dir, max_abs_xy=max_abs_xy, max_range=max_range)
+    (out_dir / "settings.cfg").write_text(settings_text, encoding="utf-8")
+    (out_dir / "settings.cfg.example").write_text(settings_text, encoding="utf-8")
 
     print(json.dumps({"frames": len(csv_files), "out_dir": str(out_dir), "ins_path": str(ins_path) if ins_path else None}, indent=2))
 
@@ -123,6 +140,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--classes-yaml", default=None, help="Fallback class config. If omitted, class_names are read from LitePT metadata.")
     parser.add_argument("--out-dir", required=True)
     parser.add_argument("--ins-path", default=None)
+    parser.add_argument("--overwrite-labels-xml", action="store_true")
+    parser.add_argument("--pose-mode", choices=["local_identity"], default="local_identity")
     parser.add_argument("--height", type=int, default=DEFAULT_HEIGHT)
     parser.add_argument("--width", type=int, default=DEFAULT_WIDTH)
     return parser.parse_args()
@@ -168,21 +187,40 @@ def resolve_class_definitions(
     raise ValueError("Could not infer classes from LitePT metadata. Pass --classes-yaml as a fallback.")
 
 
-def write_settings_hint(out_dir: Path) -> None:
+def visualization_pose_for(pose_mode: str) -> list[float]:
+    if pose_mode == "local_identity":
+        return list(IDENTITY_KITTI_POSE)
+    raise ValueError(f"Unsupported pose mode: {pose_mode}")
+
+
+def frame_extent(points_flat: np.ndarray) -> tuple[float, float]:
+    xyz = np.asarray(points_flat[:, :3], dtype=np.float32)
+    finite = np.isfinite(xyz).all(axis=1)
+    if not np.any(finite):
+        return 0.0, 0.0
+    xyz = xyz[finite]
+    max_abs_xy = float(np.max(np.abs(xyz[:, :2])))
+    max_range = float(np.max(np.linalg.norm(xyz, axis=1)))
+    return max_abs_xy, max_range
+
+
+def settings_content(out_dir: Path, *, max_abs_xy: float, max_range: float) -> str:
     labels_xml = out_dir / "labels.xml"
+    tile_size = max(DEFAULT_TILE_SIZE, 2.0 * max_abs_xy + TILE_MARGIN)
+    max_range_value = max(DEFAULT_MAX_RANGE, max_range + RANGE_MARGIN)
     text = "\n".join(
         [
             f"labels file: {labels_xml}",
             "point size: 4",
             "render points as spheres: true",
-            "tile size: 100.0",
+            f"tile size: {tile_size:.3f}",
             "max scans: 500",
             "min range: 0.0",
-            "max range: 200.0",
+            f"max range: {max_range_value:.3f}",
             "",
         ]
     )
-    (out_dir / "settings.cfg.example").write_text(text, encoding="utf-8")
+    return text
 
 
 if __name__ == "__main__":
