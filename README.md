@@ -77,9 +77,12 @@ python3 scripts/prepare_for_point_labeler.py \
 ```
 
 The generated dataset contains `velodyne/`, `labels/`, `poses.txt`, `calib.txt`, `labels.xml`,
-`bridge_manifest.json`, and `settings.cfg.example`. Use the generated `labels file` setting so the UI
+`bridge_manifest.json`, `settings.cfg`, and `settings.cfg.example`. Use the generated `labels file` setting so the UI
 uses the same semantic ids as the LitePT masks. Class names are read from the LitePT per-frame
 `metadata.json` `class_names` field; `--classes-yaml` is only a fallback when metadata is missing.
+For labeler visualization, `poses.txt` is written relative to the earliest ego pose. The default
+`--visualization-axis-mode ego_y_forward` maps ego/INS `+Y` motion to KITTI/Velodyne `+X` forward;
+use `--visualization-axis-mode kitti_x_forward` if your pose matrices are already in KITTI axes.
 
 After manual editing and saving in the labeler, export corrected masks back to the LitePT layout:
 

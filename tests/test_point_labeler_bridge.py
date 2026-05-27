@@ -192,16 +192,16 @@ def test_prepare_writes_relative_ego_poses_from_earliest_timestamp(tmp_path: Pat
     write_xyz_csv(csv_dir / "frame_001.csv", height=height, width=width, timestamp_s=10, timestamp_u=0)
 
     litept = tmp_path / "litept"
-    for frame_id, timestamp_us, tx in (("frame_000", 20_000_000, 4.0), ("frame_001", 10_000_000, 1.0)):
+    for frame_id, timestamp_us, ty in (("frame_000", 20_000_000, 4.0), ("frame_001", 10_000_000, 1.0)):
         frame_out = litept / frame_id
         frame_out.mkdir(parents=True)
         ego_pose = {
             "timestamp_us": timestamp_us,
             "source_timestamp_us": timestamp_us,
             "delta_us": 0,
-            "translation": [tx, 0.0, 0.0],
+            "translation": [0.0, ty, 0.0],
             "rotation_matrix": [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
-            "kitti_pose": [1.0, 0.0, 0.0, tx, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0],
+            "kitti_pose": [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, ty, 0.0, 0.0, 1.0, 0.0],
         }
         write_metadata(frame_out / "metadata.json", ego_pose=ego_pose)
 
@@ -221,6 +221,8 @@ def test_prepare_writes_relative_ego_poses_from_earliest_timestamp(tmp_path: Pat
     )
 
     pose_values = [float(x) for x in (labeler_dir / "poses.txt").read_text(encoding="utf-8").strip().split()]
+    manifest = json.loads((labeler_dir / "bridge_manifest.json").read_text(encoding="utf-8"))
+    assert manifest["visualization_axis_mode"] == "ego_y_forward"
     assert pose_values == [
         1.0,
         0.0,

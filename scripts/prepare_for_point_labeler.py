@@ -62,6 +62,7 @@ def main() -> None:
         "height": args.height,
         "width": args.width,
         "pose_mode": args.pose_mode,
+        "visualization_axis_mode": args.visualization_axis_mode,
         "class_source": class_source,
         "classes": [{"name": name, "id": label_id} for name, label_id in class_definitions],
         "ins_path": str(ins_path) if ins_path is not None else None,
@@ -117,7 +118,7 @@ def main() -> None:
             }
         )
 
-    poses = visualization_poses_for(args.pose_mode, manifest["frames"])
+    poses = visualization_poses_for(args.pose_mode, manifest["frames"], args.visualization_axis_mode)
     for frame_manifest, visualization_pose in zip(manifest["frames"], poses):
         frame_manifest["visualization_pose"] = visualization_pose
 
@@ -142,6 +143,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--ins-path", default=None)
     parser.add_argument("--overwrite-labels-xml", action="store_true")
     parser.add_argument("--pose-mode", choices=["relative_ego", "local_identity"], default="relative_ego")
+    parser.add_argument(
+        "--visualization-axis-mode",
+        choices=["ego_y_forward", "kitti_x_forward"],
+        default="ego_y_forward",
+        help="Axis convention for poses.txt only. ego_y_forward maps ego +Y motion to KITTI/Velodyne +X forward.",
+    )
     parser.add_argument("--height", type=int, default=DEFAULT_HEIGHT)
     parser.add_argument("--width", type=int, default=DEFAULT_WIDTH)
     return parser.parse_args()
@@ -187,15 +194,15 @@ def resolve_class_definitions(
     raise ValueError("Could not infer classes from LitePT metadata. Pass --classes-yaml as a fallback.")
 
 
-def visualization_poses_for(pose_mode: str, frames: list[dict]) -> list[list[float]]:
+def visualization_poses_for(pose_mode: str, frames: list[dict], axis_mode: str) -> list[list[float]]:
     if pose_mode == "local_identity":
         return [list(IDENTITY_KITTI_POSE) for _ in frames]
     if pose_mode == "relative_ego":
-        return relative_ego_poses(frames)
+        return relative_ego_poses(frames, axis_mode=axis_mode)
     raise ValueError(f"Unsupported pose mode: {pose_mode}")
 
 
-def relative_ego_poses(frames: list[dict]) -> list[list[float]]:
+def relative_ego_poses(frames: list[dict], *, axis_mode: str) -> list[list[float]]:
     valid: list[tuple[int, int, np.ndarray]] = []
     for index, frame in enumerate(frames):
         ego_pose = frame.get("ego_pose")
@@ -222,8 +229,25 @@ def relative_ego_poses(frames: list[dict]) -> list[list[float]]:
         if matrix is None:
             poses.append(list(IDENTITY_KITTI_POSE))
             continue
-        poses.append(matrix_to_kitti_pose(origin @ matrix))
+        poses.append(matrix_to_kitti_pose(convert_visualization_axes(origin @ matrix, axis_mode)))
     return poses
+
+
+def convert_visualization_axes(matrix: np.ndarray, axis_mode: str) -> np.ndarray:
+    if axis_mode == "kitti_x_forward":
+        return matrix
+    if axis_mode == "ego_y_forward":
+        basis = np.eye(4, dtype=np.float64)
+        basis[:3, :3] = np.array(
+            [
+                [0.0, 1.0, 0.0],
+                [-1.0, 0.0, 0.0],
+                [0.0, 0.0, 1.0],
+            ],
+            dtype=np.float64,
+        )
+        return basis @ matrix @ np.linalg.inv(basis)
+    raise ValueError(f"Unsupported visualization axis mode: {axis_mode}")
 
 
 def kitti_pose_to_matrix(values: list[float]) -> np.ndarray:
