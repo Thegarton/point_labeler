@@ -121,6 +121,13 @@
            </widget>
           </item>
           <item>
+           <widget class="QCheckBox" name="chkShowCameraRgb">
+            <property name="text">
+             <string>camera RGB</string>
+            </property>
+           </widget>
+          </item>
+          <item>
            <widget class="QCheckBox" name="chkShowScanRange">
             <property name="text">
              <string>show scan range</string>

@@ -4,6 +4,7 @@ layout (location = 0) in vec3  in_vertex;
 layout (location = 1) in float in_remission;
 layout (location = 2) in uint  in_label;
 layout (location = 3) in uint  in_visible;
+layout (location = 4) in vec3  in_color;
 
 uniform uint scan;
 
@@ -22,6 +23,7 @@ out POINT
 {
   bool valid;
   vec4 point;
+  vec3 color;
   uint label;
   uint visible;
   uvec2 scanindex;
@@ -45,6 +47,7 @@ void main()
   {
     vs_out.valid = true;
     vs_out.point = vec4(v_global.xyz, in_remission);
+    vs_out.color = in_color;
     vs_out.label = in_label;
     vs_out.visible = in_visible;
     vs_out.scanindex = uvec2(scan, gl_VertexID);

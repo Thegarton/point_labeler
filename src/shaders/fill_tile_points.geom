@@ -7,6 +7,7 @@ in POINT
 {
   bool valid;
   vec4 point;
+  vec3 color;
   uint label;
   uint visible;
   uvec2 scanindex;
@@ -14,6 +15,7 @@ in POINT
 
 
 out vec4  out_point;
+out vec3  out_color;
 out uint  out_label;
 out uint  out_visible;
 out uvec2  out_scanindex;
@@ -24,6 +26,7 @@ void main()
   if(gs_in[0].valid)
   {
     out_point = gs_in[0].point;
+    out_color = gs_in[0].color;
     out_label = gs_in[0].label;
     out_visible = gs_in[0].visible;
     out_scanindex = gs_in[0].scanindex;

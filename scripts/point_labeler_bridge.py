@@ -245,6 +245,142 @@ def write_identity_calib(path: Path) -> None:
     path.write_text("Tr: " + " ".join(fmt_float(value) for value in IDENTITY_KITTI_POSE) + "\n", encoding="utf-8")
 
 
+def read_kitti_calibration(path: Path) -> dict[str, np.ndarray]:
+    matrices: dict[str, np.ndarray] = {}
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        if ":" not in raw_line:
+            continue
+        name, values = raw_line.split(":", 1)
+        tokens = [x for x in values.strip().split() if x]
+        if len(tokens) != 12:
+            continue
+        matrix = np.eye(4, dtype=np.float64)
+        matrix[:3, :4] = np.asarray([float(x) for x in tokens], dtype=np.float64).reshape(3, 4)
+        matrices[name.strip()] = matrix
+    if not matrices:
+        raise ValueError(f"No 3x4 KITTI calibration matrices found in {path}")
+    return matrices
+
+
+def select_camera_projection(calibration: dict[str, np.ndarray], camera_id: str) -> np.ndarray:
+    if camera_id in calibration:
+        return calibration[camera_id]
+    for fallback in ("P2", "P0", "P1", "P3"):
+        if fallback in calibration:
+            return calibration[fallback]
+    raise KeyError(f"Calibration has no {camera_id} matrix and no P0/P1/P2/P3 fallback")
+
+
+def select_lidar_to_camera(calibration: dict[str, np.ndarray]) -> np.ndarray:
+    if "Tr" in calibration:
+        return calibration["Tr"]
+    if "T_lidar_to_camera" in calibration:
+        return calibration["T_lidar_to_camera"]
+    raise KeyError("Calibration has no Tr lidar_to_camera matrix")
+
+
+def project_rgb_to_points(points_xyzi: np.ndarray, image_rgb: np.ndarray, projection: np.ndarray, tr: np.ndarray) -> tuple[np.ndarray, dict]:
+    points = np.asarray(points_xyzi, dtype=np.float64)
+    if points.ndim != 2 or points.shape[1] < 3:
+        raise ValueError(f"points_xyzi must have shape [N,>=3], got {points.shape}")
+    image = np.asarray(image_rgb, dtype=np.uint8)
+    if image.ndim != 3 or image.shape[2] != 3:
+        raise ValueError(f"image_rgb must have shape [H,W,3], got {image.shape}")
+
+    points_h = np.ones((points.shape[0], 4), dtype=np.float64)
+    points_h[:, :3] = points[:, :3]
+    camera_h = (tr @ points_h.T).T
+    camera_depth = camera_h[:, 2]
+    projected = (projection @ camera_h.T).T
+
+    rgb = np.zeros((points.shape[0], 3), dtype=np.uint8)
+    valid_depth = camera_depth > 0.0
+    valid_projected = valid_depth & (np.abs(projected[:, 2]) > 1e-9)
+    u = np.full((points.shape[0],), -1, dtype=np.int64)
+    v = np.full((points.shape[0],), -1, dtype=np.int64)
+    u[valid_projected] = np.rint(projected[valid_projected, 0] / projected[valid_projected, 2]).astype(np.int64)
+    v[valid_projected] = np.rint(projected[valid_projected, 1] / projected[valid_projected, 2]).astype(np.int64)
+
+    height, width = image.shape[:2]
+    inside = valid_projected & (u >= 0) & (u < width) & (v >= 0) & (v < height)
+    rgb[inside] = image[v[inside], u[inside]]
+    summary = {
+        "points": int(points.shape[0]),
+        "projected": int(np.count_nonzero(inside)),
+        "behind_camera": int(np.count_nonzero(~valid_depth)),
+        "out_of_image": int(np.count_nonzero(valid_projected & ~inside)),
+    }
+    return rgb, summary
+
+
+def read_velodyne_bin(path: Path) -> np.ndarray:
+    arr = np.fromfile(path, dtype=np.float32)
+    if arr.size % CHANNELS != 0:
+        raise ValueError(f"Point cloud {path} has {arr.size} floats, not divisible by {CHANNELS}")
+    return arr.reshape(-1, CHANNELS)
+
+
+def write_point_rgb(path: Path, rgb: np.ndarray) -> None:
+    arr = np.asarray(rgb, dtype=np.uint8)
+    if arr.ndim != 2 or arr.shape[1] != 3:
+        raise ValueError(f"RGB point colors must have shape [N,3], got {arr.shape}")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    arr.tofile(path)
+
+
+def read_image_rgb(path: Path) -> np.ndarray:
+    raw = path.read_bytes()
+    if raw.startswith(b"P6"):
+        return read_ppm_rgb(raw, source=path)
+    try:
+        import cv2  # type: ignore
+
+        image_bgr = cv2.imread(str(path), cv2.IMREAD_COLOR)
+        if image_bgr is not None:
+            return image_bgr[:, :, ::-1].astype(np.uint8, copy=False)
+    except ImportError:
+        pass
+    try:
+        from PIL import Image  # type: ignore
+
+        return np.asarray(Image.open(path).convert("RGB"), dtype=np.uint8)
+    except ImportError as exc:
+        raise ImportError("Reading JPG/PNG images requires opencv-python or Pillow") from exc
+
+
+def read_ppm_rgb(raw: bytes, *, source: Path) -> np.ndarray:
+    offset = 0
+
+    def next_token() -> bytes:
+        nonlocal offset
+        while offset < len(raw) and raw[offset:offset + 1].isspace():
+            offset += 1
+        if offset < len(raw) and raw[offset:offset + 1] == b"#":
+            while offset < len(raw) and raw[offset:offset + 1] not in {b"\n", b"\r"}:
+                offset += 1
+            return next_token()
+        start = offset
+        while offset < len(raw) and not raw[offset:offset + 1].isspace():
+            offset += 1
+        return raw[start:offset]
+
+    magic = next_token()
+    if magic != b"P6":
+        raise ValueError(f"Unsupported PPM magic in {source}: {magic!r}")
+    width = int(next_token())
+    height = int(next_token())
+    max_value = int(next_token())
+    if max_value != 255:
+        raise ValueError(f"Only 8-bit PPM images are supported, got max value {max_value}")
+    if offset < len(raw) and raw[offset:offset + 1].isspace():
+        offset += 1
+    expected = width * height * 3
+    pixels = raw[offset:offset + expected]
+    if len(pixels) != expected:
+        raise ValueError(f"PPM {source} has {len(pixels)} pixel bytes, expected {expected}")
+    return np.frombuffer(pixels, dtype=np.uint8).reshape(height, width, 3).copy()
+
+
 def load_metadata(path: Path) -> dict[str, Any]:
     if not path.exists():
         return {}

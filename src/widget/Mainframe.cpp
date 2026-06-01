@@ -83,6 +83,8 @@ Mainframe::Mainframe() : mChangesSinceLastSave(false) {
 
   connect(ui.chkShowRemission, &QCheckBox::toggled,
           [this](bool value) { ui.mViewportXYZ->setDrawingOption("remission", value); });
+  connect(ui.chkShowCameraRgb, &QCheckBox::toggled,
+          [this](bool value) { ui.mViewportXYZ->setDrawingOption("camera RGB", value); });
 
   connect(ui.chkRemoveGround, &QCheckBox::toggled, [this](bool value) { ui.mViewportXYZ->setGroundRemoval(value); });
   connect(ui.spinGroundThreshold, static_cast<void (QDoubleSpinBox::*)(double)>(&QDoubleSpinBox::valueChanged),

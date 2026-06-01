@@ -9,6 +9,9 @@ import numpy as np
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = REPO_ROOT / "scripts"
+sys.path.insert(0, str(SCRIPTS))
+
+from point_labeler_bridge import project_rgb_to_points  # noqa: E402
 
 
 def run_script(script: str, *args: str) -> None:
@@ -45,6 +48,44 @@ def write_xyz_csv(path: Path, *, height: int, width: int, timestamp_s: int = 10,
         f.write("x,y,z,intensity,timestamp_s,timestamp_u\n")
         for i in range(height * width):
             f.write(f"{i},{i + 1},{i + 2},0.5,{timestamp_s},{timestamp_u}\n")
+
+
+def write_xyz_points(path: Path, points: list[tuple[float, float, float, float]]) -> None:
+    with path.open("w", encoding="utf-8") as f:
+        f.write("x,y,z,intensity,timestamp_s,timestamp_u\n")
+        for x, y, z, intensity in points:
+            f.write(f"{x},{y},{z},{intensity},10,260000\n")
+
+
+def write_ppm(path: Path) -> None:
+    # 2x2 RGB image:
+    # row 0: red, green
+    # row 1: blue, white
+    pixels = bytes(
+        [
+            255,
+            0,
+            0,
+            0,
+            255,
+            0,
+            0,
+            0,
+            255,
+            255,
+            255,
+            255,
+        ]
+    )
+    path.write_bytes(b"P6\n2 2\n255\n" + pixels)
+
+
+def write_projection_calib(path: Path) -> None:
+    path.write_text(
+        "P2: 1 0 0 0 0 1 0 0 0 0 1 0\n"
+        "Tr: 1 0 0 0 0 1 0 0 0 0 1 0\n",
+        encoding="utf-8",
+    )
 
 
 def test_roundtrip_preserves_mask_and_existing_ego_pose(tmp_path: Path):
@@ -114,6 +155,74 @@ def test_roundtrip_preserves_mask_and_existing_ego_pose(tmp_path: Path):
     assert metadata["manual_reviewed"] is True
     assert metadata["pose"] == str(corrected / "frame_000" / "pose.txt")
     assert len((corrected / "frame_000" / "pose.txt").read_text(encoding="utf-8").strip().split()) == 12
+
+
+def test_prepare_can_copy_calib_and_precompute_point_rgb(tmp_path: Path):
+    csv_dir = tmp_path / "csv"
+    csv_dir.mkdir()
+    write_xyz_points(
+        csv_dir / "frame_000.csv",
+        [
+            (0.0, 0.0, 1.0, 0.5),
+            (1.0, 0.0, 1.0, 0.5),
+            (0.0, 1.0, 1.0, 0.5),
+        ],
+    )
+    write_ppm(csv_dir / "frame_000.jpg")
+
+    litept = tmp_path / "litept"
+    frame_out = litept / "frame_000"
+    frame_out.mkdir(parents=True)
+    np.save(frame_out / "semantic_mask.npy", np.zeros((1, 3), dtype=np.uint16))
+    write_metadata(frame_out / "metadata.json")
+
+    calib = tmp_path / "calib.txt"
+    write_projection_calib(calib)
+
+    labeler_dir = tmp_path / "labeler"
+    run_script(
+        "prepare_for_point_labeler.py",
+        "--csv-dir",
+        str(csv_dir),
+        "--litept-output-dir",
+        str(litept),
+        "--out-dir",
+        str(labeler_dir),
+        "--height",
+        "1",
+        "--width",
+        "3",
+        "--calib-file",
+        str(calib),
+        "--precompute-rgb",
+    )
+
+    assert (labeler_dir / "calib.txt").read_text(encoding="utf-8") == calib.read_text(encoding="utf-8")
+    rgb = (labeler_dir / "point_rgb" / "frame_000.rgb").read_bytes()
+    assert rgb == bytes([255, 0, 0, 0, 255, 0, 0, 0, 255])
+    manifest = json.loads((labeler_dir / "point_rgb" / "point_rgb_manifest.json").read_text(encoding="utf-8"))
+    assert manifest["frames"][0]["projected"] == 3
+
+
+def test_project_rgb_to_points_paints_invalid_points_black():
+    image = np.asarray([[[10, 20, 30]]], dtype=np.uint8)
+    projection = np.eye(4, dtype=np.float64)
+    tr = np.eye(4, dtype=np.float64)
+    points = np.asarray(
+        [
+            [0.0, 0.0, 1.0, 0.0],
+            [5.0, 0.0, 1.0, 0.0],
+            [0.0, 0.0, -1.0, 0.0],
+        ],
+        dtype=np.float32,
+    )
+
+    rgb, summary = project_rgb_to_points(points, image, projection, tr)
+
+    assert rgb.tolist() == [[10, 20, 30], [0, 0, 0], [0, 0, 0]]
+    assert summary["projected"] == 1
+    assert summary["out_of_image"] == 1
+    assert summary["behind_camera"] == 1
 
 
 def test_prepare_builds_ego_pose_from_ins_when_metadata_is_missing(tmp_path: Path):

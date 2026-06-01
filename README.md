@@ -100,6 +100,33 @@ metadata plus KITTI-style `pose.txt` on export. By default it looks for either `
 single file or one `*.csv`/`*.tsv` file inside the `<csv-dir>/ins/` directory; use `--ins-path` to
 override that.
 
+## Camera RGB point coloring
+
+To color points from the synchronized camera image in the UI, prepare a real KITTI-style `calib.txt`
+with a camera projection matrix such as `P2` and LiDAR-to-camera `Tr`, then precompute point colors:
+
+```bash
+python3 scripts/prepare_for_point_labeler.py \
+  --csv-dir /path/to/data \
+  --litept-output-dir /path/to/litept_or_fused_masks \
+  --calib-file /path/to/calib.txt \
+  --precompute-rgb \
+  --out-dir /path/to/labeler_dataset
+```
+
+This writes `point_rgb/<frame_id>.rgb` as raw `uint8` RGB triplets aligned with `velodyne/<frame_id>.bin`.
+In the labeler UI, enable `camera RGB` in the Visuals tab to switch from class/remission coloring to image
+RGB coloring. Points behind the camera, outside the image, or missing RGB data are shown as black.
+
+You can also precompute RGB for an existing labeler dataset:
+
+```bash
+python3 scripts/precompute_point_rgb.py \
+  --dataset-dir /path/to/labeler_dataset \
+  --camera-id P2 \
+  --overwrite
+```
+
 
 
 

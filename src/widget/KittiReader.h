@@ -70,6 +70,8 @@ class KittiReader {
 
  protected:
   void readPoints(const std::string& filename, Laserscan& scan);
+  void readPoints(const std::string& filename, const std::string& rgb_filename, Laserscan& scan);
+  void readPointColors(const std::string& filename, uint32_t num_points, std::vector<Point3f>& colors);
   void readLabels(const std::string& filename, std::vector<uint32_t>& labels);
   void readPoses(const std::string& filename, std::vector<Eigen::Matrix4f>& poses);
 
@@ -79,6 +81,7 @@ class KittiReader {
   std::vector<std::string> velodyne_filenames_;
   std::vector<std::string> label_filenames_;
   std::vector<std::string> image_filenames_;
+  std::vector<std::string> rgb_filenames_;
 
   // cache reads from before.
   std::map<uint32_t, PointcloudPtr> pointsCache_;

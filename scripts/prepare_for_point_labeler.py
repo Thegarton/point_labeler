@@ -22,6 +22,7 @@ from point_labeler_bridge import (
     write_identity_calib,
     write_labels_xml,
 )
+from precompute_point_rgb import precompute_point_rgb
 
 DEFAULT_TILE_SIZE = 100.0
 DEFAULT_MAX_RANGE = 200.0
@@ -35,6 +36,7 @@ def main() -> None:
     litept_output_dir = Path(args.litept_output_dir).expanduser().resolve() if args.litept_output_dir else None
     out_dir = Path(args.out_dir).expanduser().resolve()
     classes_yaml = Path(args.classes_yaml).expanduser().resolve() if args.classes_yaml else None
+    calib_file = Path(args.calib_file).expanduser().resolve() if args.calib_file else None
     ins_path = resolve_ins_path(csv_dir, args.ins_path)
 
     csv_files = sorted(csv_dir.glob("*.csv"))
@@ -49,7 +51,7 @@ def main() -> None:
     velodyne_dir.mkdir(parents=True, exist_ok=True)
     labels_dir.mkdir(parents=True, exist_ok=True)
 
-    write_identity_calib(out_dir / "calib.txt")
+    write_calibration(out_dir / "calib.txt", calib_file=calib_file)
     class_definitions, class_source = resolve_class_definitions(
         litept_output_dir=litept_output_dir,
         classes_yaml=classes_yaml,
@@ -135,7 +137,21 @@ def main() -> None:
     (out_dir / "settings.cfg").write_text(settings_text, encoding="utf-8")
     (out_dir / "settings.cfg.example").write_text(settings_text, encoding="utf-8")
 
-    print(json.dumps({"frames": len(csv_files), "out_dir": str(out_dir), "ins_path": str(ins_path) if ins_path else None}, indent=2))
+    rgb_summary = None
+    if args.precompute_rgb:
+        rgb_summary = precompute_point_rgb(dataset_dir=out_dir, camera_id=args.camera_id, overwrite=args.overwrite_rgb)
+
+    print(
+        json.dumps(
+            {
+                "frames": len(csv_files),
+                "out_dir": str(out_dir),
+                "ins_path": str(ins_path) if ins_path else None,
+                "rgb_manifest": str(out_dir / "point_rgb" / "point_rgb_manifest.json") if rgb_summary is not None else None,
+            },
+            indent=2,
+        )
+    )
 
 
 def parse_args() -> argparse.Namespace:
@@ -145,6 +161,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--classes-yaml", default=None, help="Fallback class config. If omitted, class_names are read from LitePT metadata.")
     parser.add_argument("--out-dir", required=True)
     parser.add_argument("--ins-path", default=None)
+    parser.add_argument("--calib-file", default=None, help="Real KITTI calib.txt to copy into the labeler dataset.")
+    parser.add_argument("--precompute-rgb", action="store_true", help="Precompute point_rgb/*.rgb from image_2 and calib.txt.")
+    parser.add_argument("--camera-id", default="P2", help="KITTI camera projection matrix used for RGB precompute.")
+    parser.add_argument("--overwrite-rgb", action="store_true", help="Overwrite existing point_rgb/*.rgb files.")
     parser.add_argument("--overwrite-labels-xml", action="store_true")
     parser.add_argument("--pose-mode", choices=["relative_ego", "local_identity"], default="relative_ego")
     parser.add_argument(
@@ -176,6 +196,15 @@ def resolve_ins_file(path: Path) -> Path:
             raise FileNotFoundError(f"No INS file found in {path}")
         raise ValueError(f"Multiple INS files found in {path}; pass --ins-path explicitly")
     raise FileNotFoundError(f"INS path does not exist: {path}")
+
+
+def write_calibration(out_path: Path, *, calib_file: Path | None) -> None:
+    if calib_file is None:
+        write_identity_calib(out_path)
+        return
+    if not calib_file.exists():
+        raise FileNotFoundError(f"Calibration file does not exist: {calib_file}")
+    shutil.copy2(calib_file, out_path)
 
 
 def copy_frame_image(*, csv_dir: Path, image_dir: Path, frame_id: str) -> Path | None:

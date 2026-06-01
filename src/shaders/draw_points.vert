@@ -3,6 +3,7 @@
 layout (location = 0) in vec4  in_vertex;
 layout (location = 1) in uint  in_label;
 layout (location = 2) in uint  in_visible;
+layout (location = 3) in vec3  in_rgb;
 
 uniform sampler2DRect label_colors;
 uniform sampler2D     heightMap;
@@ -13,6 +14,7 @@ uniform sampler2D     heightMap;
 uniform mat4 mvp;
 
 uniform bool useRemission;
+uniform bool useCameraRgb;
 uniform bool useColor;
 uniform bool zeroLabelAsClass;
 
@@ -127,7 +129,11 @@ void main()
   if(!visible) gl_Position = vec4(-10, -10, -10, 1);
   
   
-  if(useRemission)
+  if(useCameraRgb)
+  {
+    color = vec4(in_rgb, 1.0);
+  }
+  else if(useRemission)
   { 
         
       in_remission = clamp(in_remission, 0.0, 1.0);

@@ -14,6 +14,7 @@ void KittiReader::initialize(const QString& directory) {
   velodyne_filenames_.clear();
   label_filenames_.clear();
   image_filenames_.clear();
+  rgb_filenames_.clear();
   poses_.clear();
 
   pointsCache_.clear();
@@ -61,17 +62,22 @@ void KittiReader::initialize(const QString& directory) {
 
   std::string missing_img = QDir::currentPath().toStdString() + "/../assets/missing.png";
   QDir image_dir(base_dir_.filePath("image_2"));
+  QDir rgb_dir(base_dir_.filePath("point_rgb"));
   for (uint32_t i = 0; i < velodyne_filenames_.size(); ++i) {
     QString filename_base = QFileInfo(QString::fromStdString(velodyne_filenames_[i])).baseName();
     QString filename_jpg = filename_base + ".jpg";
+    QString filename_jpeg = filename_base + ".jpeg";
     QString filename_png = filename_base + ".png";
     if (image_dir.exists(filename_jpg)) {
       image_filenames_.push_back(image_dir.filePath(filename_jpg).toStdString());
+    } else if (image_dir.exists(filename_jpeg)) {
+      image_filenames_.push_back(image_dir.filePath(filename_jpeg).toStdString());
     } else if (image_dir.exists(filename_png)) {
       image_filenames_.push_back(image_dir.filePath(filename_png).toStdString());
     } else {
       image_filenames_.push_back(missing_img);
     }
+    rgb_filenames_.push_back(rgb_dir.filePath(filename_base + ".rgb").toStdString());
   }
 
   // assumes that (0,0,0) is always the start.
@@ -259,7 +265,7 @@ void KittiReader::retrieve(uint32_t i, uint32_t j, std::vector<uint32_t>& indexe
       scansRead += 1;
 
       points.push_back(std::shared_ptr<Laserscan>(new Laserscan));
-      readPoints(velodyne_filenames_[t], *points.back());
+      readPoints(velodyne_filenames_[t], rgb_filenames_[t], *points.back());
       pointsCache_[t] = points.back();
       points.back()->pose = poses_[t];
 
@@ -340,6 +346,10 @@ void KittiReader::update(const std::vector<uint32_t>& indexes, std::vector<Label
 }
 
 void KittiReader::readPoints(const std::string& filename, Laserscan& scan) {
+  readPoints(filename, "", scan);
+}
+
+void KittiReader::readPoints(const std::string& filename, const std::string& rgb_filename, Laserscan& scan) {
   std::ifstream in(filename.c_str(), std::ios::binary);
   if (!in.is_open()) return;
 
@@ -355,15 +365,49 @@ void KittiReader::readPoints(const std::string& filename, Laserscan& scan) {
   in.close();
   std::vector<Point3f>& points = scan.points;
   std::vector<float>& remissions = scan.remissions;
+  std::vector<Point3f>& colors = scan.colors;
 
   points.resize(num_points);
   remissions.resize(num_points);
+  colors.resize(num_points);
 
   for (uint32_t i = 0; i < num_points; ++i) {
     points[i].x = values[4 * i];
     points[i].y = values[4 * i + 1];
     points[i].z = values[4 * i + 2];
     remissions[i] = values[4 * i + 3];
+    colors[i].x = 0.0f;
+    colors[i].y = 0.0f;
+    colors[i].z = 0.0f;
+  }
+
+  if (rgb_filename.size() > 0) readPointColors(rgb_filename, num_points, colors);
+}
+
+void KittiReader::readPointColors(const std::string& filename, uint32_t num_points, std::vector<Point3f>& colors) {
+  std::ifstream in(filename.c_str(), std::ios::binary);
+  if (!in.is_open()) return;
+
+  in.seekg(0, std::ios::end);
+  uint32_t num_bytes = in.tellg();
+  in.seekg(0, std::ios::beg);
+
+  uint32_t expected_bytes = num_points * 3;
+  if (num_bytes != expected_bytes) {
+    std::stringstream ss;
+    ss << "Invalid RGB file size for " << filename << ": expected " << expected_bytes << " bytes, got "
+       << num_bytes;
+    throw std::runtime_error(ss.str());
+  }
+
+  std::vector<uint8_t> values(num_bytes);
+  in.read((char*)&values[0], num_bytes);
+  in.close();
+
+  for (uint32_t i = 0; i < num_points; ++i) {
+    colors[i].x = float(values[3 * i]) / 255.0f;
+    colors[i].y = float(values[3 * i + 1]) / 255.0f;
+    colors[i].z = float(values[3 * i + 2]) / 255.0f;
   }
 }
 
