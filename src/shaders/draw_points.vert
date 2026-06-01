@@ -90,6 +90,34 @@ vec3 jet(float v)
     return mix(interval_colors[max(0, idx-1)], interval_colors[idx], alpha);
 }
 
+vec3 cameraRgbColor(vec3 rgb, float remission)
+{
+  rgb = clamp(rgb, 0.0, 1.0);
+
+  // Keep invalid/out-of-image points black. Their RGB is written as 0,0,0 by
+  // the precompute step.
+  if(dot(rgb, rgb) <= 1e-8)
+  {
+    return rgb;
+  }
+
+  // Camera images are stored as display-space RGB. A small display gamma lift
+  // makes sparse points read closer to the image brightness in the OpenGL view.
+  rgb = pow(rgb, vec3(1.0 / 2.2));
+
+  if(useRemission)
+  {
+    remission = clamp(remission, 0.0, 1.0);
+    if(gamma > 0.0) remission = pow(remission, 1.0/gamma);
+
+    vec3 hsv = rgb2hsv(rgb);
+    hsv.z = max(hsv.z, remission * 0.7 + 0.3);
+    rgb = hsv2rgb(hsv);
+  }
+
+  return rgb;
+}
+
 
 void main()
 {
@@ -131,7 +159,7 @@ void main()
   
   if(useCameraRgb)
   {
-    color = vec4(in_rgb, 1.0);
+    color = vec4(cameraRgbColor(in_rgb, in_remission), 1.0);
   }
   else if(useRemission)
   { 
