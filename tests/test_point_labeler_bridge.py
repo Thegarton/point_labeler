@@ -157,7 +157,7 @@ def test_roundtrip_preserves_mask_and_existing_ego_pose(tmp_path: Path):
     assert len((corrected / "frame_000" / "pose.txt").read_text(encoding="utf-8").strip().split()) == 12
 
 
-def test_prepare_can_copy_calib_and_precompute_point_rgb(tmp_path: Path):
+def test_prepare_keeps_pose_calib_identity_and_precomputes_point_rgb_from_rgb_calib(tmp_path: Path):
     csv_dir = tmp_path / "csv"
     csv_dir.mkdir()
     write_xyz_points(
@@ -194,14 +194,19 @@ def test_prepare_can_copy_calib_and_precompute_point_rgb(tmp_path: Path):
         "3",
         "--calib-file",
         str(calib),
+        "--type",
+        "koide",
         "--precompute-rgb",
     )
 
-    assert (labeler_dir / "calib.txt").read_text(encoding="utf-8") == calib.read_text(encoding="utf-8")
+    assert (labeler_dir / "calib.txt").read_text(encoding="utf-8") == "Tr: 1 0 0 0 0 1 0 0 0 0 1 0\n"
+    assert (labeler_dir / "rgb_calib_koide.txt").read_text(encoding="utf-8") == calib.read_text(encoding="utf-8")
     rgb = (labeler_dir / "point_rgb" / "frame_000.rgb").read_bytes()
     assert rgb == bytes([255, 0, 0, 0, 255, 0, 0, 0, 255])
     manifest = json.loads((labeler_dir / "point_rgb" / "point_rgb_manifest.json").read_text(encoding="utf-8"))
     assert manifest["frames"][0]["projected"] == 3
+    assert manifest["calibration_type"] == "koide"
+    assert manifest["calib_file"] == str(labeler_dir / "rgb_calib_koide.txt")
 
 
 def test_project_rgb_to_points_paints_invalid_points_black():

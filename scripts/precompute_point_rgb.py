@@ -22,12 +22,21 @@ def main() -> None:
         dataset_dir=Path(args.dataset_dir).expanduser().resolve(),
         camera_id=args.camera_id,
         overwrite=args.overwrite,
+        calibration_type=args.type,
+        calib_file=Path(args.calib_file).expanduser().resolve() if args.calib_file else None,
     )
     print(json.dumps(summary, ensure_ascii=False, indent=2))
 
 
-def precompute_point_rgb(*, dataset_dir: Path, camera_id: str = "P2", overwrite: bool = False) -> dict:
-    calib_path = dataset_dir / "calib.txt"
+def precompute_point_rgb(
+    *,
+    dataset_dir: Path,
+    camera_id: str = "P2",
+    overwrite: bool = False,
+    calibration_type: str | None = None,
+    calib_file: Path | None = None,
+) -> dict:
+    calib_path = resolve_rgb_calib_path(dataset_dir=dataset_dir, calibration_type=calibration_type, calib_file=calib_file)
     velodyne_dir = dataset_dir / "velodyne"
     image_dir = dataset_dir / "image_2"
     rgb_dir = dataset_dir / "point_rgb"
@@ -65,10 +74,41 @@ def precompute_point_rgb(*, dataset_dir: Path, camera_id: str = "P2", overwrite:
             }
         )
 
-    summary = {"version": 1, "dataset_dir": str(dataset_dir), "camera_id": camera_id, "frames": frames}
+    summary = {
+        "version": 1,
+        "dataset_dir": str(dataset_dir),
+        "camera_id": camera_id,
+        "calibration_type": calibration_type,
+        "calib_file": str(calib_path),
+        "frames": frames,
+    }
     rgb_dir.mkdir(parents=True, exist_ok=True)
     (rgb_dir / "point_rgb_manifest.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
     return summary
+
+
+def resolve_rgb_calib_path(*, dataset_dir: Path, calibration_type: str | None, calib_file: Path | None) -> Path:
+    if calib_file is not None:
+        if not calib_file.exists():
+            raise FileNotFoundError(f"RGB calibration file does not exist: {calib_file}")
+        return calib_file
+
+    candidates: list[Path] = []
+    if calibration_type:
+        candidates.extend(
+            [
+                dataset_dir / f"rgb_calib_{calibration_type}.txt",
+                dataset_dir / f"{calibration_type}_calib.txt",
+            ]
+        )
+    candidates.extend([dataset_dir / "rgb_calib.txt", dataset_dir / "calib.txt"])
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    raise FileNotFoundError(
+        "No RGB calibration file found. Pass --calib-file, or place rgb_calib.txt/rgb_calib_<type>.txt "
+        "inside the dataset directory."
+    )
 
 
 def find_frame_image(image_dir: Path, frame_id: str) -> Path | None:
@@ -83,6 +123,8 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Precompute per-point RGB colors from camera images and KITTI calib.txt.")
     parser.add_argument("--dataset-dir", required=True)
     parser.add_argument("--camera-id", default="P2")
+    parser.add_argument("--type", choices=["koide", "factory"], default=None, help="Calibration type used to resolve rgb_calib_<type>.txt.")
+    parser.add_argument("--calib-file", default=None, help="Explicit KITTI-style RGB calibration file.")
     parser.add_argument("--overwrite", action="store_true")
     return parser.parse_args()
 

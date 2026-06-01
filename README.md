@@ -102,14 +102,16 @@ override that.
 
 ## Camera RGB point coloring
 
-To color points from the synchronized camera image in the UI, prepare a real KITTI-style `calib.txt`
-with a camera projection matrix such as `P2` and LiDAR-to-camera `Tr`, then precompute point colors:
+`calib.txt` is used by the labeler for scan poses. Keep it as the identity/default pose calibration unless
+you really need KITTI pose conversion. Camera projection uses a separate KITTI-style RGB calibration file
+with a camera projection matrix such as `P2` and LiDAR-to-camera `Tr`.
 
 ```bash
 python3 scripts/prepare_for_point_labeler.py \
   --csv-dir /path/to/data \
   --litept-output-dir /path/to/litept_or_fused_masks \
-  --calib-file /path/to/calib.txt \
+  --rgb-calib-file /path/to/koide_calib.txt \
+  --type koide \
   --precompute-rgb \
   --out-dir /path/to/labeler_dataset
 ```
@@ -123,6 +125,8 @@ You can also precompute RGB for an existing labeler dataset:
 ```bash
 python3 scripts/precompute_point_rgb.py \
   --dataset-dir /path/to/labeler_dataset \
+  --calib-file /path/to/koide_calib.txt \
+  --type koide \
   --camera-id P2 \
   --overwrite
 ```
@@ -140,7 +144,9 @@ point cloud folder
 ├── velodyne/             -- directory containing ".bin" files with Velodyne point clouds.   
 ├── labels/   [optional]  -- label directory, will be generated if not present.  
 ├── image_2/  [optional]  -- directory containing ".png" files from the color   camera.  
-├── calib.txt             -- calibration of velodyne vs. camera. needed for projection of point cloud into camera.  
+├── point_rgb/ [optional] -- precomputed camera RGB colors for points.
+├── calib.txt             -- pose calibration used by the labeler. Use identity Tr for local LiDAR poses.
+├── rgb_calib.txt [optional] -- camera projection calibration used by precompute_point_rgb.py.
 └── poses.txt             -- file containing the poses of every scan.
 </pre>
 

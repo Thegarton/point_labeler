@@ -36,7 +36,8 @@ def main() -> None:
     litept_output_dir = Path(args.litept_output_dir).expanduser().resolve() if args.litept_output_dir else None
     out_dir = Path(args.out_dir).expanduser().resolve()
     classes_yaml = Path(args.classes_yaml).expanduser().resolve() if args.classes_yaml else None
-    calib_file = Path(args.calib_file).expanduser().resolve() if args.calib_file else None
+    pose_calib_file = Path(args.pose_calib_file).expanduser().resolve() if args.pose_calib_file else None
+    rgb_calib_file = Path(args.rgb_calib_file or args.calib_file).expanduser().resolve() if (args.rgb_calib_file or args.calib_file) else None
     ins_path = resolve_ins_path(csv_dir, args.ins_path)
 
     csv_files = sorted(csv_dir.glob("*.csv"))
@@ -51,7 +52,8 @@ def main() -> None:
     velodyne_dir.mkdir(parents=True, exist_ok=True)
     labels_dir.mkdir(parents=True, exist_ok=True)
 
-    write_calibration(out_dir / "calib.txt", calib_file=calib_file)
+    write_pose_calibration(out_dir / "calib.txt", calib_file=pose_calib_file)
+    copied_rgb_calib = copy_rgb_calibration(out_dir=out_dir, calib_file=rgb_calib_file, calibration_type=args.type)
     class_definitions, class_source = resolve_class_definitions(
         litept_output_dir=litept_output_dir,
         classes_yaml=classes_yaml,
@@ -139,7 +141,13 @@ def main() -> None:
 
     rgb_summary = None
     if args.precompute_rgb:
-        rgb_summary = precompute_point_rgb(dataset_dir=out_dir, camera_id=args.camera_id, overwrite=args.overwrite_rgb)
+        rgb_summary = precompute_point_rgb(
+            dataset_dir=out_dir,
+            camera_id=args.camera_id,
+            overwrite=args.overwrite_rgb,
+            calibration_type=args.type,
+            calib_file=copied_rgb_calib,
+        )
 
     print(
         json.dumps(
@@ -161,8 +169,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--classes-yaml", default=None, help="Fallback class config. If omitted, class_names are read from LitePT metadata.")
     parser.add_argument("--out-dir", required=True)
     parser.add_argument("--ins-path", default=None)
-    parser.add_argument("--calib-file", default=None, help="Real KITTI calib.txt to copy into the labeler dataset.")
-    parser.add_argument("--precompute-rgb", action="store_true", help="Precompute point_rgb/*.rgb from image_2 and calib.txt.")
+    parser.add_argument("--pose-calib-file", default=None, help="Optional calib.txt for labeler poses. Defaults to identity Tr.")
+    parser.add_argument("--calib-file", default=None, help="Deprecated alias for --rgb-calib-file.")
+    parser.add_argument("--rgb-calib-file", default=None, help="KITTI-style camera calibration used only for RGB projection.")
+    parser.add_argument("--type", choices=["koide", "factory"], default=None, help="Calibration type saved as rgb_calib_<type>.txt.")
+    parser.add_argument("--precompute-rgb", action="store_true", help="Precompute point_rgb/*.rgb from image_2 and RGB calibration.")
     parser.add_argument("--camera-id", default="P2", help="KITTI camera projection matrix used for RGB precompute.")
     parser.add_argument("--overwrite-rgb", action="store_true", help="Overwrite existing point_rgb/*.rgb files.")
     parser.add_argument("--overwrite-labels-xml", action="store_true")
@@ -198,13 +209,24 @@ def resolve_ins_file(path: Path) -> Path:
     raise FileNotFoundError(f"INS path does not exist: {path}")
 
 
-def write_calibration(out_path: Path, *, calib_file: Path | None) -> None:
+def write_pose_calibration(out_path: Path, *, calib_file: Path | None) -> None:
     if calib_file is None:
         write_identity_calib(out_path)
         return
     if not calib_file.exists():
         raise FileNotFoundError(f"Calibration file does not exist: {calib_file}")
     shutil.copy2(calib_file, out_path)
+
+
+def copy_rgb_calibration(*, out_dir: Path, calib_file: Path | None, calibration_type: str | None) -> Path | None:
+    if calib_file is None:
+        return None
+    if not calib_file.exists():
+        raise FileNotFoundError(f"RGB calibration file does not exist: {calib_file}")
+    filename = f"rgb_calib_{calibration_type}.txt" if calibration_type else "rgb_calib.txt"
+    out_path = out_dir / filename
+    shutil.copy2(calib_file, out_path)
+    return out_path
 
 
 def copy_frame_image(*, csv_dir: Path, image_dir: Path, frame_id: str) -> Path | None:
