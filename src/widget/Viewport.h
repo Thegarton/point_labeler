@@ -255,7 +255,6 @@ class Viewport : public QGLWidget {
   // buffers used for copying points to tile buffers.
   glow::GlBuffer<Point3f> bufTempPoints_{glow::BufferTarget::ARRAY_BUFFER, glow::BufferUsage::DYNAMIC_DRAW};
   glow::GlBuffer<float> bufTempRemissions_{glow::BufferTarget::ARRAY_BUFFER, glow::BufferUsage::DYNAMIC_DRAW};
-  glow::GlBuffer<Point3f> bufTempColors_{glow::BufferTarget::ARRAY_BUFFER, glow::BufferUsage::DYNAMIC_DRAW};
   glow::GlBuffer<uint32_t> bufTempLabels_{glow::BufferTarget::ARRAY_BUFFER, glow::BufferUsage::DYNAMIC_DRAW};
   glow::GlBuffer<uint32_t> bufTempVisible_{glow::BufferTarget::ARRAY_BUFFER, glow::BufferUsage::DYNAMIC_DRAW};
 

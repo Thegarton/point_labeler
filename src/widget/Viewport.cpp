@@ -55,13 +55,11 @@ Viewport::Viewport(QWidget* parent, Qt::WindowFlags f)
 
   bufTempPoints_.reserve(maxPointsPerScan_);
   bufTempRemissions_.reserve(maxPointsPerScan_);
-  bufTempColors_.reserve(maxPointsPerScan_);
   bufTempLabels_.reserve(maxPointsPerScan_);
   bufTempVisible_.reserve(maxPointsPerScan_);
 
   uint32_t tempMem = bufTempPoints_.memorySize();
   tempMem += bufTempRemissions_.memorySize();
-  tempMem += bufTempColors_.memorySize();
   tempMem += bufTempLabels_.memorySize();
   tempMem += bufTempVisible_.memorySize();
 
@@ -76,7 +74,6 @@ Viewport::Viewport(QWidget* parent, Qt::WindowFlags f)
   tfUpdateVisibility_.attach({"out_visible"}, bufUpdatedVisiblity_);
 
   tfFillTilePoints_.attach({"out_point"}, bufPoints_);
-  tfFillTilePoints_.attach({"out_color"}, bufPointColors_);
   tfFillTilePoints_.attach({"out_label"}, bufLabels_);
   tfFillTilePoints_.attach({"out_visible"}, bufVisible_);
   tfFillTilePoints_.attach({"out_scanindex"}, bufScanIndexes_);
@@ -244,7 +241,6 @@ void Viewport::initVertexBuffers() {
                                       nullptr);
   vao_temp_points_.setVertexAttribute(3, bufTempVisible_, 1, AttributeType::UNSIGNED_INT, false, sizeof(uint32_t),
                                       nullptr);
-  vao_temp_points_.setVertexAttribute(4, bufTempColors_, 3, AttributeType::FLOAT, false, sizeof(Point3f), nullptr);
 
   vao_polygon_points_.setVertexAttribute(0, bufPolygonPoints_, 2, AttributeType::FLOAT, false, sizeof(vec2), nullptr);
 
@@ -334,10 +330,6 @@ void Viewport::setPoints(const std::vector<PointcloudPtr>& p, std::vector<Labels
         bufTempRemissions_.assign(points_[t]->remissions);
       else
         bufTempRemissions_.assign(std::vector<float>(points_[t]->size(), 1.0f));
-      if (points_[t]->hasColors())
-        bufTempColors_.assign(points_[t]->colors);
-      else
-        bufTempColors_.assign(std::vector<Point3f>(points_[t]->size(), Point3f{0.0f, 0.0f, 0.0f}));
       bufTempLabels_.assign(*(labels_[t]));
       bufTempVisible_.assign(visible);
 
@@ -373,6 +365,7 @@ void Viewport::setPoints(const std::vector<PointcloudPtr>& p, std::vector<Labels
 
     ScanInfo current;
     int32_t currentScanIndex{-1};
+    std::vector<Point3f> copiedColors(numCopiedPoints);
 
     uint32_t count = 0;
     while (count * maxPointsPerScan_ < bufScanIndexes_.size()) {
@@ -381,6 +374,12 @@ void Viewport::setPoints(const std::vector<PointcloudPtr>& p, std::vector<Labels
       bufReadBuffer.get(scanIndexes, 0, read_size);
 
       for (uint32_t i = 0; i < read_size; ++i) {
+        uint32_t globalIndex = count * maxPointsPerScan_ + i;
+        uint32_t scanidx = scanIndexes[i].x;
+        uint32_t pointidx = scanIndexes[i].y;
+        if (scanidx < points_.size() && pointidx < points_[scanidx]->colors.size()) {
+          copiedColors[globalIndex] = points_[scanidx]->colors[pointidx];
+        }
         if (currentScanIndex != int32_t(scanIndexes[i].x)) {
           if (currentScanIndex > -1) scanInfos_[currentScanIndex] = current;
           current.start = count * maxPointsPerScan_ + i;
@@ -395,6 +394,7 @@ void Viewport::setPoints(const std::vector<PointcloudPtr>& p, std::vector<Labels
 
     // write last entry.
     if (currentScanIndex > -1) scanInfos_[currentScanIndex] = current;
+    bufPointColors_.assign(copiedColors);
 
     // ensure that empty indexes get the beginning from before.
     for (uint32_t i = 0; i < scanInfos_.size(); ++i) {
