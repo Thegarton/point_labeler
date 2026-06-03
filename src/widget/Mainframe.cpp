@@ -85,6 +85,8 @@ Mainframe::Mainframe() : mChangesSinceLastSave(false) {
           [this](bool value) { ui.mViewportXYZ->setDrawingOption("remission", value); });
   connect(ui.chkShowCameraRgb, &QCheckBox::toggled,
           [this](bool value) { ui.mViewportXYZ->setDrawingOption("camera RGB", value); });
+  connect(ui.chkRenderPointsAsSpheres, &QCheckBox::toggled,
+          [this](bool value) { ui.mViewportXYZ->setRenderPointsAsSpheres(value); });
 
   connect(ui.chkRemoveGround, &QCheckBox::toggled, [this](bool value) { ui.mViewportXYZ->setGroundRemoval(value); });
   connect(ui.spinGroundThreshold, static_cast<void (QDoubleSpinBox::*)(double)>(&QDoubleSpinBox::valueChanged),
@@ -1069,6 +1071,7 @@ void Mainframe::readConfig(const std::string& filename) {
     if (key == "render points as spheres") {
       std::string value = trim(tokens[1]);
       bool enabled = value == "true" || value == "True" || value == "1";
+      ui.chkRenderPointsAsSpheres->setChecked(enabled);
       ui.mViewportXYZ->setRenderPointsAsSpheres(enabled);
       std::cout << "-- Setting 'render points as spheres' to " << (enabled ? "true" : "false") << std::endl;
     }

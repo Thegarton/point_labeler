@@ -18,6 +18,7 @@ from point_labeler_bridge import (
     load_ins_pose_index,
     load_metadata,
     load_semantic_mask,
+    parse_image_size,
     read_semantic_classes,
     write_identity_calib,
     write_labels_xml,
@@ -147,6 +148,7 @@ def main() -> None:
             overwrite=args.overwrite_rgb,
             calibration_type=args.type,
             calib_file=copied_rgb_calib,
+            calibration_image_size=parse_image_size(args.rgb_calibration_image_size),
         )
 
     print(
@@ -172,6 +174,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--pose-calib-file", default=None, help="Optional calib.txt for labeler poses. Defaults to identity Tr.")
     parser.add_argument("--calib-file", default=None, help="Deprecated alias for --rgb-calib-file.")
     parser.add_argument("--rgb-calib-file", default=None, help="KITTI-style camera calibration used only for RGB projection.")
+    parser.add_argument(
+        "--rgb-calibration-image-size",
+        default=None,
+        help="WIDTHxHEIGHT image size for --rgb-calib-file projection matrices, e.g. 3840x2160.",
+    )
     parser.add_argument("--type", choices=["koide", "factory"], default=None, help="Calibration type saved as rgb_calib_<type>.txt.")
     parser.add_argument("--precompute-rgb", action="store_true", help="Precompute point_rgb/*.rgb from image_2 and RGB calibration.")
     parser.add_argument("--camera-id", default="P2", help="KITTI camera projection matrix used for RGB precompute.")

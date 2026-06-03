@@ -106,11 +106,47 @@ override that.
 you really need KITTI pose conversion. Camera projection uses a separate KITTI-style RGB calibration file
 with a camera projection matrix such as `P2` and LiDAR-to-camera `Tr`.
 
+The two calibration files intentionally mean different things:
+
+- `calib.txt` in the labeler dataset is pose calibration for loading scans and `poses.txt`. For the CSV/LitePT
+  bridge it should normally contain only identity `Tr`.
+- `rgb_calib.txt` or `rgb_calib_<type>.txt` is only for camera RGB precompute. Put the camera matrix there.
+- `P2` is the camera projection matrix. In this bridge it is the 3x4 intrinsic/projection matrix that maps
+  camera-frame homogeneous points to image pixels.
+- `Tr` or `T_lidar_to_camera` is the rigid transform from LiDAR coordinates into the camera coordinate frame.
+  If your calibration tool exports camera-to-LiDAR, invert it before writing the RGB calibration file.
+
+If `P2` was calibrated for a 4K image but the frames in `image_2/` are resized, write the source image size in
+the RGB calibration file:
+
+```text
+image_size: 3840 2160
+P2: ...
+Tr: ...
+```
+
+or pass it explicitly:
+
+```bash
+python3 scripts/precompute_point_rgb.py \
+  --dataset-dir /path/to/labeler_dataset \
+  --calib-file /path/to/koide_calib.txt \
+  --calibration-image-size 3840x2160 \
+  --camera-id P2 \
+  --overwrite
+```
+
+The code scales the first row of `P2` by `actual_width / calibration_width` and the second row by
+`actual_height / calibration_height` for every image it reads. This is correct for resized/compressed frames
+from the same camera when the image was not cropped or letterboxed. Cropped or padded images need crop/padding
+offsets in the calibration before precompute.
+
 ```bash
 python3 scripts/prepare_for_point_labeler.py \
   --csv-dir /path/to/data \
   --litept-output-dir /path/to/litept_or_fused_masks \
   --rgb-calib-file /path/to/koide_calib.txt \
+  --rgb-calibration-image-size 3840x2160 \
   --type koide \
   --precompute-rgb \
   --out-dir /path/to/labeler_dataset
@@ -119,6 +155,8 @@ python3 scripts/prepare_for_point_labeler.py \
 This writes `point_rgb/<frame_id>.rgb` as raw `uint8` RGB triplets aligned with `velodyne/<frame_id>.bin`.
 In the labeler UI, enable `camera RGB` in the Visuals tab to switch from class/remission coloring to image
 RGB coloring. Points behind the camera, outside the image, or missing RGB data are shown as black.
+Use `render points as spheres` in the Visuals tab to toggle shaded sphere impostors for the point cloud; turn it
+off when the spherical shading makes RGB colors or dense labels harder to inspect.
 
 You can also precompute RGB for an existing labeler dataset:
 

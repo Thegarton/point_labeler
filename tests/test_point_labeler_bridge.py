@@ -230,6 +230,27 @@ def test_project_rgb_to_points_paints_invalid_points_black():
     assert summary["behind_camera"] == 1
 
 
+def test_project_rgb_to_points_scales_projection_to_resized_image():
+    image = np.asarray(
+        [
+            [[10, 0, 0], [20, 0, 0]],
+            [[30, 0, 0], [40, 0, 0]],
+        ],
+        dtype=np.uint8,
+    )
+    projection = np.eye(4, dtype=np.float64)
+    projection[0, 0] = 2.0
+    projection[1, 1] = 2.0
+    tr = np.eye(4, dtype=np.float64)
+    points = np.asarray([[1.0, 1.0, 1.0, 0.0]], dtype=np.float32)
+
+    rgb, summary = project_rgb_to_points(points, image, projection, tr, calibration_image_size=(4, 4))
+
+    assert rgb.tolist() == [[40, 0, 0]]
+    assert summary["projected"] == 1
+    assert summary["calibration_image_size"] == [4, 4]
+
+
 def test_prepare_builds_ego_pose_from_ins_when_metadata_is_missing(tmp_path: Path):
     height, width = 2, 2
     csv_dir = tmp_path / "csv"

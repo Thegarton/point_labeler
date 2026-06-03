@@ -279,7 +279,14 @@ def select_lidar_to_camera(calibration: dict[str, np.ndarray]) -> np.ndarray:
     raise KeyError("Calibration has no Tr lidar_to_camera matrix")
 
 
-def project_rgb_to_points(points_xyzi: np.ndarray, image_rgb: np.ndarray, projection: np.ndarray, tr: np.ndarray) -> tuple[np.ndarray, dict]:
+def project_rgb_to_points(
+    points_xyzi: np.ndarray,
+    image_rgb: np.ndarray,
+    projection: np.ndarray,
+    tr: np.ndarray,
+    *,
+    calibration_image_size: tuple[int, int] | None = None,
+) -> tuple[np.ndarray, dict]:
     points = np.asarray(points_xyzi, dtype=np.float64)
     if points.ndim != 2 or points.shape[1] < 3:
         raise ValueError(f"points_xyzi must have shape [N,>=3], got {points.shape}")
@@ -287,6 +294,11 @@ def project_rgb_to_points(points_xyzi: np.ndarray, image_rgb: np.ndarray, projec
     if image.ndim != 3 or image.shape[2] != 3:
         raise ValueError(f"image_rgb must have shape [H,W,3], got {image.shape}")
 
+    projection = scale_camera_projection(
+        projection,
+        calibration_image_size=calibration_image_size,
+        target_image_shape=image.shape[:2],
+    )
     points_h = np.ones((points.shape[0], 4), dtype=np.float64)
     points_h[:, :3] = points[:, :3]
     camera_h = (tr @ points_h.T).T
@@ -309,8 +321,78 @@ def project_rgb_to_points(points_xyzi: np.ndarray, image_rgb: np.ndarray, projec
         "projected": int(np.count_nonzero(inside)),
         "behind_camera": int(np.count_nonzero(~valid_depth)),
         "out_of_image": int(np.count_nonzero(valid_projected & ~inside)),
+        "image_size": [int(width), int(height)],
+        "calibration_image_size": list(calibration_image_size) if calibration_image_size is not None else None,
     }
     return rgb, summary
+
+
+def scale_camera_projection(
+    projection: np.ndarray,
+    *,
+    calibration_image_size: tuple[int, int] | None,
+    target_image_shape: tuple[int, int],
+) -> np.ndarray:
+    matrix = np.asarray(projection, dtype=np.float64).copy()
+    if calibration_image_size is None:
+        return matrix
+
+    source_width, source_height = calibration_image_size
+    target_height, target_width = target_image_shape
+    if source_width <= 0 or source_height <= 0:
+        raise ValueError(f"calibration_image_size must be positive, got {calibration_image_size}")
+
+    matrix[0, :] *= float(target_width) / float(source_width)
+    matrix[1, :] *= float(target_height) / float(source_height)
+    return matrix
+
+
+def parse_image_size(value: str | None) -> tuple[int, int] | None:
+    if value is None:
+        return None
+    normalized = value.strip().lower().replace(",", "x").replace("\t", "x").replace(" ", "x")
+    tokens = [token for token in normalized.split("x") if token]
+    if len(tokens) != 2:
+        raise ValueError(f"Image size must be WIDTHxHEIGHT, got {value!r}")
+    width, height = (int(float(token)) for token in tokens)
+    if width <= 0 or height <= 0:
+        raise ValueError(f"Image size must be positive, got {value!r}")
+    return width, height
+
+
+def read_calibration_image_size(path: Path, *, camera_id: str | None = None) -> tuple[int, int] | None:
+    generic_keys = {"image_size", "calibration_image_size", "source_image_size", "rgb_image_size", "resolution"}
+    camera_keys = {key.lower() for key in camera_size_keys(camera_id)}
+    generic_size = None
+
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        if ":" not in raw_line:
+            continue
+        name, values = raw_line.split(":", 1)
+        key = name.strip()
+        tokens = [x for x in values.strip().split() if x]
+        if len(tokens) < 2:
+            continue
+        value = f"{tokens[0]}x{tokens[1]}"
+        if key.lower() in camera_keys:
+            return parse_image_size(value)
+        if key.lower() in generic_keys:
+            generic_size = parse_image_size(value)
+
+    return generic_size
+
+
+def camera_size_keys(camera_id: str | None) -> set[str]:
+    if not camera_id:
+        return set()
+    suffix = camera_id[1:] if camera_id.startswith("P") else camera_id
+    suffix = suffix.zfill(2)
+    return {
+        f"S_{suffix}",
+        f"S_rect_{suffix}",
+        f"image_size_{camera_id}",
+        f"calibration_image_size_{camera_id}",
+    }
 
 
 def read_velodyne_bin(path: Path) -> np.ndarray:
