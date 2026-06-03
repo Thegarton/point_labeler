@@ -19,6 +19,7 @@ from point_labeler_bridge import (
     load_metadata,
     load_semantic_mask,
     parse_image_size,
+    read_kitti_pose_values,
     read_semantic_classes,
     write_identity_calib,
     write_labels_xml,
@@ -87,7 +88,10 @@ def main() -> None:
 
         metadata_path = litept_output_dir / frame_id / "metadata.json" if litept_output_dir is not None else None
         metadata = load_metadata(metadata_path) if metadata_path is not None else {}
+        pose_path = litept_output_dir / frame_id / "pose.txt" if litept_output_dir is not None else None
         ego_pose = metadata.get("ego_pose")
+        if ego_pose is None and pose_path is not None and pose_path.exists():
+            ego_pose = ego_pose_from_kitti_pose_file(pose_path, timestamp_us=frame.timestamp_us)
         if ego_pose is None and pose_index is not None:
             if frame.timestamp_us is None:
                 raise ValueError(f"Cannot match INS pose for {frame_id}: frame timestamp_us is missing")
@@ -112,6 +116,7 @@ def main() -> None:
                 "source_csv": str(csv_path),
                 "source_metadata": str(metadata_path) if metadata_path is not None and metadata_path.exists() else None,
                 "source_semantic_mask": str(mask_path) if mask_path is not None and mask_path.exists() else None,
+                "source_pose": str(pose_path) if pose_path is not None and pose_path.exists() else None,
                 "velodyne": str(velodyne_dir / f"{frame_id}.bin"),
                 "label": str(labels_dir / f"{frame_id}.label"),
                 "image": str(image_path) if image_path is not None else None,
@@ -265,6 +270,20 @@ def resolve_class_definitions(
         return read_semantic_classes(classes_yaml), str(classes_yaml)
 
     raise ValueError("Could not infer classes from LitePT metadata. Pass --classes-yaml as a fallback.")
+
+
+def ego_pose_from_kitti_pose_file(path: Path, *, timestamp_us: int | None) -> dict:
+    kitti_pose = read_kitti_pose_values(path)
+    matrix = kitti_pose_to_matrix(kitti_pose)
+    return {
+        "timestamp_us": timestamp_us,
+        "source_timestamp_us": timestamp_us,
+        "delta_us": 0,
+        "translation": matrix[:3, 3].astype(float).tolist(),
+        "rotation_matrix": matrix[:3, :3].astype(float).tolist(),
+        "kitti_pose": kitti_pose,
+        "source": str(path),
+    }
 
 
 def visualization_poses_for(pose_mode: str, frames: list[dict], axis_mode: str) -> list[list[float]]:

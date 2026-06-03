@@ -388,3 +388,67 @@ def test_prepare_writes_relative_ego_poses_from_earliest_timestamp(tmp_path: Pat
         1.0,
         0.0,
     ]
+
+
+def test_prepare_uses_litept_pose_txt_when_ego_pose_metadata_is_missing(tmp_path: Path):
+    height, width = 1, 1
+    csv_dir = tmp_path / "csv"
+    csv_dir.mkdir()
+    write_xyz_csv(csv_dir / "frame_000.csv", height=height, width=width, timestamp_s=20, timestamp_u=0)
+    write_xyz_csv(csv_dir / "frame_001.csv", height=height, width=width, timestamp_s=10, timestamp_u=0)
+
+    litept = tmp_path / "litept"
+    for frame_id, ty in (("frame_000", 4.0), ("frame_001", 1.0)):
+        frame_out = litept / frame_id
+        frame_out.mkdir(parents=True)
+        write_metadata(frame_out / "metadata.json")
+        pose = [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, ty, 0.0, 0.0, 1.0, 0.0]
+        (frame_out / "pose.txt").write_text(" ".join(str(value) for value in pose) + "\n", encoding="utf-8")
+
+    labeler_dir = tmp_path / "labeler"
+    run_script(
+        "prepare_for_point_labeler.py",
+        "--csv-dir",
+        str(csv_dir),
+        "--litept-output-dir",
+        str(litept),
+        "--out-dir",
+        str(labeler_dir),
+        "--height",
+        str(height),
+        "--width",
+        str(width),
+    )
+
+    pose_values = [float(x) for x in (labeler_dir / "poses.txt").read_text(encoding="utf-8").strip().split()]
+    manifest = json.loads((labeler_dir / "bridge_manifest.json").read_text(encoding="utf-8"))
+
+    assert manifest["frames"][0]["source_pose"] == str(litept / "frame_000" / "pose.txt")
+    assert manifest["frames"][0]["ego_pose"]["source"] == str(litept / "frame_000" / "pose.txt")
+    assert manifest["frames"][0]["ego_pose"]["translation"] == [0.0, 4.0, 0.0]
+    assert pose_values == [
+        1.0,
+        0.0,
+        0.0,
+        3.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+    ]

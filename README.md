@@ -85,6 +85,9 @@ they are copied into `image_2/` and recorded in `bridge_manifest.json`.
 For labeler visualization, `poses.txt` is written relative to the earliest ego pose. The default
 `--visualization-axis-mode ego_y_forward` maps ego/INS `+Y` motion to KITTI/Velodyne `+X` forward;
 use `--visualization-axis-mode kitti_x_forward` if your pose matrices are already in KITTI axes.
+Per-frame poses are read in this order: `metadata.json` field `ego_pose`, then
+`<litept-output-dir>/<frame_id>/pose.txt` with 12 KITTI 3x4 values, then an INS file if one is available.
+INS is optional; by default it is searched as `<csv-dir>/ins` and can be overridden with `--ins-path`.
 
 After manual editing and saving in the labeler, export corrected masks back to the LitePT layout:
 

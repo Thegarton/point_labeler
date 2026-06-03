@@ -241,6 +241,13 @@ def write_kitti_pose_values(path: Path, kitti_pose: list[float]) -> None:
     path.write_text(" ".join(fmt_float(value) for value in kitti_pose) + "\n", encoding="utf-8")
 
 
+def read_kitti_pose_values(path: Path) -> list[float]:
+    tokens = path.read_text(encoding="utf-8").strip().split()
+    if len(tokens) != 12:
+        raise ValueError(f"KITTI pose file {path} must contain 12 values, got {len(tokens)}")
+    return [float(value) for value in tokens]
+
+
 def write_identity_calib(path: Path) -> None:
     path.write_text("Tr: " + " ".join(fmt_float(value) for value in IDENTITY_KITTI_POSE) + "\n", encoding="utf-8")
 
