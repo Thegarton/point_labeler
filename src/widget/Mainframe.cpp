@@ -83,10 +83,12 @@ Mainframe::Mainframe() : mChangesSinceLastSave(false) {
 
   connect(ui.chkShowRemission, &QCheckBox::toggled,
           [this](bool value) { ui.mViewportXYZ->setDrawingOption("remission", value); });
+  connect(ui.chkShowIntensity, &QCheckBox::toggled,
+          [this](bool value) { ui.mViewportXYZ->setDrawingOption("intensity", value); });
   connect(ui.chkShowCameraRgb, &QCheckBox::toggled,
           [this](bool value) { ui.mViewportXYZ->setDrawingOption("camera RGB", value); });
-  connect(ui.chkRenderPointsAsSpheres, &QCheckBox::toggled,
-          [this](bool value) { ui.mViewportXYZ->setRenderPointsAsSpheres(value); });
+  connect(ui.chkShadePointSpheres, &QCheckBox::toggled,
+          [this](bool value) { ui.mViewportXYZ->setShadePointSpheres(value); });
 
   connect(ui.chkRemoveGround, &QCheckBox::toggled, [this](bool value) { ui.mViewportXYZ->setGroundRemoval(value); });
   connect(ui.spinGroundThreshold, static_cast<void (QDoubleSpinBox::*)(double)>(&QDoubleSpinBox::valueChanged),
@@ -1071,9 +1073,23 @@ void Mainframe::readConfig(const std::string& filename) {
     if (key == "render points as spheres") {
       std::string value = trim(tokens[1]);
       bool enabled = value == "true" || value == "True" || value == "1";
-      ui.chkRenderPointsAsSpheres->setChecked(enabled);
       ui.mViewportXYZ->setRenderPointsAsSpheres(enabled);
+      ui.chkShadePointSpheres->setEnabled(enabled);
       std::cout << "-- Setting 'render points as spheres' to " << (enabled ? "true" : "false") << std::endl;
+    }
+    if (key == "shade point spheres") {
+      std::string value = trim(tokens[1]);
+      bool enabled = value == "true" || value == "True" || value == "1";
+      ui.chkShadePointSpheres->setChecked(enabled);
+      ui.mViewportXYZ->setShadePointSpheres(enabled);
+      std::cout << "-- Setting 'shade point spheres' to " << (enabled ? "true" : "false") << std::endl;
+    }
+    if (key == "show intensity") {
+      std::string value = trim(tokens[1]);
+      bool enabled = value == "true" || value == "True" || value == "1";
+      ui.chkShowIntensity->setChecked(enabled);
+      ui.mViewportXYZ->setDrawingOption("intensity", enabled);
+      std::cout << "-- Setting 'show intensity' to " << (enabled ? "true" : "false") << std::endl;
     }
     if (key == "flip mouse buttons") {
       float value = boost::lexical_cast<float>(trim(tokens[1]));

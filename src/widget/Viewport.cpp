@@ -9,7 +9,9 @@
 #include <QtWidgets/QMessageBox>
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <fstream>
+#include <limits>
 #include "rv/Stopwatch.h"
 
 #include <glow/GlState.h>
@@ -85,6 +87,7 @@ Viewport::Viewport(QWidget* parent, Qt::WindowFlags f)
   initVertexBuffers();
 
   drawingOption_["remission"] = true;
+  drawingOption_["intensity"] = false;
   drawingOption_["color"] = false;
   drawingOption_["camera RGB"] = false;
   drawingOption_["single scan"] = false;
@@ -289,6 +292,23 @@ void Viewport::setPoints(const std::vector<PointcloudPtr>& p, std::vector<Labels
 
   points_ = p;
   labels_ = l;
+  intensityMin_ = std::numeric_limits<float>::max();
+  intensityMax_ = std::numeric_limits<float>::lowest();
+  bool hasIntensity = false;
+  for (const auto& scan : points_) {
+    for (float value : scan->remissions) {
+      if (!std::isfinite(value)) continue;
+      intensityMin_ = std::min(intensityMin_, value);
+      intensityMax_ = std::max(intensityMax_, value);
+      hasIntensity = true;
+    }
+  }
+  if (!hasIntensity) {
+    intensityMin_ = 0.0f;
+    intensityMax_ = 1.0f;
+  } else if (std::abs(intensityMax_ - intensityMin_) < 1e-6f) {
+    intensityMax_ = intensityMin_ + 1.0f;
+  }
 
   //  Stopwatch::tic();
 
@@ -764,8 +784,11 @@ void Viewport::paintGL() {
     ScopedBinder<GlVertexArray> vao_binder(vao_points_);
 
     prgDrawPoints_.setUniform(GlUniform<bool>("useRemission", drawingOption_["remission"]));
+    prgDrawPoints_.setUniform(GlUniform<bool>("useIntensity", drawingOption_["intensity"]));
     prgDrawPoints_.setUniform(GlUniform<bool>("useCameraRgb", drawingOption_["camera RGB"]));
     prgDrawPoints_.setUniform(GlUniform<bool>("useColor", drawingOption_["color"]));
+    prgDrawPoints_.setUniform(GlUniform<float>("intensityMin", intensityMin_));
+    prgDrawPoints_.setUniform(GlUniform<float>("intensityMax", intensityMax_));
     prgDrawPoints_.setUniform(GlUniform<bool>("removeGround", removeGround_));
     prgDrawPoints_.setUniform(GlUniform<float>("groundThreshold", groundThreshold_));
     prgDrawPoints_.setUniform(GlUniform<vec2>("tilePos", tilePos_));
@@ -780,6 +803,7 @@ void Viewport::paintGL() {
 
     prgDrawPoints_.setUniform(GlUniform<bool>("hideLabeledInstances", drawingOption_["hide labeled instances"]));
     prgDrawPoints_.setUniform(GlUniform<bool>("renderPointsAsSpheres", renderPointsAsSpheres_));
+    prgDrawPoints_.setUniform(GlUniform<bool>("shadePointSpheres", shadePointSpheres_));
     prgDrawPoints_.setUniform(GlUniform<bool>("zeroLabelAsClass", zeroLabelAsClass_));
 
     //    prgDrawPoints_.setUniform(GlUniform<bool>("carAsBase", drawingOption_["carAsBase"]));

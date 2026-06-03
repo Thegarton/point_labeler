@@ -121,6 +121,13 @@
            </widget>
           </item>
           <item>
+           <widget class="QCheckBox" name="chkShowIntensity">
+            <property name="text">
+             <string>intensity</string>
+            </property>
+           </widget>
+          </item>
+          <item>
            <widget class="QCheckBox" name="chkShowCameraRgb">
             <property name="text">
              <string>camera RGB</string>
@@ -128,9 +135,12 @@
            </widget>
           </item>
           <item>
-           <widget class="QCheckBox" name="chkRenderPointsAsSpheres">
+           <widget class="QCheckBox" name="chkShadePointSpheres">
             <property name="text">
-             <string>render points as spheres</string>
+             <string>sphere shadows</string>
+            </property>
+            <property name="checked">
+             <bool>true</bool>
             </property>
            </widget>
           </item>

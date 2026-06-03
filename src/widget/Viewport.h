@@ -76,6 +76,10 @@ class Viewport : public QGLWidget {
     renderPointsAsSpheres_ = value;
     updateGL();
   }
+  void setShadePointSpheres(bool value) {
+    shadePointSpheres_ = value;
+    updateGL();
+  }
   void setZeroLabelAsClass(bool value) {
     zeroLabelAsClass_ = value;
     updateGL();
@@ -298,7 +302,10 @@ class Viewport : public QGLWidget {
 
   int32_t pointSize_{1};
   bool renderPointsAsSpheres_{false};
+  bool shadePointSpheres_{true};
   bool zeroLabelAsClass_{false};
+  float intensityMin_{0.0f};
+  float intensityMax_{1.0f};
 
   glow::GlUniform<Eigen::Matrix4f> mvp_{"mvp", Eigen::Matrix4f::Identity()};
   glow::GlUniform<Eigen::Matrix4f> mvp_inv_t_{"mvp_inv_t", Eigen::Matrix4f::Identity()};

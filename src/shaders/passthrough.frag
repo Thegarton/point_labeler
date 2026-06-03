@@ -4,6 +4,7 @@ in vec4 color;
 out vec4 out_color;
 
 uniform bool renderPointsAsSpheres;
+uniform bool shadePointSpheres;
 
 void main()
 {
@@ -12,6 +13,12 @@ void main()
     vec2 p = gl_PointCoord * 2.0 - 1.0;
     float r2 = dot(p, p);
     if(r2 > 1.0) discard;
+
+    if(!shadePointSpheres)
+    {
+      out_color = color;
+      return;
+    }
 
     float z = sqrt(max(0.0, 1.0 - r2));
     vec3 normal = normalize(vec3(p, z));

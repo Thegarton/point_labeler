@@ -14,6 +14,7 @@ uniform sampler2D     heightMap;
 uniform mat4 mvp;
 
 uniform bool useRemission;
+uniform bool useIntensity;
 uniform bool useCameraRgb;
 uniform bool useColor;
 uniform bool zeroLabelAsClass;
@@ -34,6 +35,8 @@ uniform float tileSize;
 
 uniform int colormap;
 uniform float gamma;
+uniform float intensityMin;
+uniform float intensityMax;
 
 uniform bool drawInstances;
 uniform uint selectedInstanceId;
@@ -90,6 +93,26 @@ vec3 jet(float v)
     return mix(interval_colors[max(0, idx-1)], interval_colors[idx], alpha);
 }
 
+vec3 plasma(float v)
+{
+    const vec3 interval_colors[] = vec3[](
+        vec3(0.050383, 0.029803, 0.527975),
+        vec3(0.299855, 0.009561, 0.631624),
+        vec3(0.494877, 0.011990, 0.657865),
+        vec3(0.665129, 0.138566, 0.585582),
+        vec3(0.798216, 0.280197, 0.469538),
+        vec3(0.901807, 0.425087, 0.359688),
+        vec3(0.973416, 0.585761, 0.251540),
+        vec3(0.993814, 0.765499, 0.156891),
+        vec3(0.940015, 0.975158, 0.131326)
+    );
+
+    float scaled = clamp(v, 0.0, 1.0) * 8.0;
+    int idx = int(floor(scaled));
+    float alpha = scaled - float(idx);
+    return mix(interval_colors[idx], interval_colors[min(idx + 1, 8)], alpha);
+}
+
 vec3 cameraRgbColor(vec3 rgb, float remission)
 {
   rgb = clamp(rgb, 0.0, 1.0);
@@ -116,6 +139,12 @@ vec3 cameraRgbColor(vec3 rgb, float remission)
   }
 
   return rgb;
+}
+
+float normalizedIntensity(float value)
+{
+  float denom = max(intensityMax - intensityMin, 1e-6);
+  return clamp((value - intensityMin) / denom, 0.0, 1.0);
 }
 
 
@@ -157,7 +186,13 @@ void main()
   if(!visible) gl_Position = vec4(-10, -10, -10, 1);
   
   
-  if(useCameraRgb)
+  if(useIntensity)
+  {
+    in_remission = normalizedIntensity(in_remission);
+    if(gamma > 0.0) in_remission = pow(in_remission, 1.0/gamma);
+    color = vec4(plasma(in_remission), 1.0);
+  }
+  else if(useCameraRgb)
   {
     color = vec4(cameraRgbColor(in_rgb, in_remission), 1.0);
   }

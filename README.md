@@ -158,8 +158,9 @@ python3 scripts/prepare_for_point_labeler.py \
 This writes `point_rgb/<frame_id>.rgb` as raw `uint8` RGB triplets aligned with `velodyne/<frame_id>.bin`.
 In the labeler UI, enable `camera RGB` in the Visuals tab to switch from class/remission coloring to image
 RGB coloring. Points behind the camera, outside the image, or missing RGB data are shown as black.
-Use `render points as spheres` in the Visuals tab to toggle shaded sphere impostors for the point cloud; turn it
-off when the spherical shading makes RGB colors or dense labels harder to inspect.
+Enable `intensity` in the Visuals tab to color points by the fourth point-cloud channel with a normalized plasma gradient.
+Use `sphere shadows` to toggle only the light/shadow shading on sphere impostors; the points remain rendered as
+round sphere sprites while their RGB/class/intensity colors stay flat.
 
 You can also precompute RGB for an existing labeler dataset:
 
