@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import json
 import os
 import subprocess
@@ -11,7 +13,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = REPO_ROOT / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
-from point_labeler_bridge import project_rgb_to_points  # noqa: E402
+from point_labeler_bridge import classes_from_metadata, project_rgb_to_points  # noqa: E402
 
 DRIVING_CLASSES = [
     "Car",
@@ -180,6 +182,58 @@ def test_roundtrip_preserves_mask_and_existing_ego_pose(tmp_path: Path):
     assert metadata["manual_reviewed"] is True
     assert metadata["pose"] == str(corrected / "frame_000" / "pose.txt")
     assert len((corrected / "frame_000" / "pose.txt").read_text(encoding="utf-8").strip().split()) == 12
+
+
+def test_export_uses_current_labels_xml_including_ui_added_classes(tmp_path: Path):
+    labeler_dir = tmp_path / "labeler"
+    (labeler_dir / "labels").mkdir(parents=True)
+    (labeler_dir / "labels" / "frame_000.label").write_bytes(
+        np.asarray([2, 42], dtype=np.uint32).tobytes()
+    )
+    (labeler_dir / "labels.xml").write_text(
+        "<config>"
+        "<label><id>2</id><name>Car</name><color>1 2 3</color><root>manual</root></label>"
+        "<label><id>42</id><name>Custom object</name><color>4 5 6</color><root>manual</root></label>"
+        "<label><id>255</id><name>ignore</name><color>120 120 120</color><root>manual</root></label>"
+        "</config>",
+        encoding="utf-8",
+    )
+    (labeler_dir / "bridge_manifest.json").write_text(
+        json.dumps(
+            {
+                "height": 1,
+                "width": 2,
+                "classes": [{"name": "Old taxonomy", "id": 0}],
+                "frames": [{"frame_id": "frame_000", "source_metadata_payload": {}}],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    corrected = tmp_path / "corrected"
+    run_script(
+        "export_from_point_labeler.py",
+        "--labeler-dir",
+        str(labeler_dir),
+        "--out-dir",
+        str(corrected),
+    )
+
+    metadata = json.loads((corrected / "frame_000" / "metadata.json").read_text(encoding="utf-8"))
+    assert metadata["class_names"] == ["Car", "Custom object"]
+    assert metadata["semantic_classes"] == {"Car": 2, "Custom object": 42, "ignore": 255}
+    assert metadata["ignore_index"] == 255
+
+
+def test_classes_from_metadata_prefers_sparse_semantic_class_ids():
+    classes = classes_from_metadata(
+        {
+            "class_names": ["wrong_dense_name"],
+            "semantic_classes": {"Car": 2, "Ground": 10, "ignore": 255},
+            "ignore_index": 255,
+        }
+    )
+    assert classes == [("Car", 2), ("Ground", 10), ("ignore", 255)]
 
 
 def test_prepare_keeps_pose_calib_identity_and_precomputes_point_rgb_from_rgb_calib(tmp_path: Path):

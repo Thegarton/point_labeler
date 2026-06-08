@@ -592,7 +592,43 @@ def write_labels_xml(path: Path, classes: list[tuple[str, int]]) -> None:
     tree.write(path, encoding="utf-8", xml_declaration=True)
 
 
+def read_labels_xml(path: Path) -> list[tuple[str, int]]:
+    if not path.is_file():
+        raise FileNotFoundError(f"Labels XML does not exist: {path}")
+    try:
+        root = ET.parse(path).getroot()
+    except ET.ParseError as exc:
+        raise ValueError(f"Cannot parse labels XML {path}: {exc}") from exc
+
+    classes: list[tuple[str, int]] = []
+    seen_ids: set[int] = set()
+    seen_names: set[str] = set()
+    for label in root.findall("label"):
+        name = (label.findtext("name") or "").strip()
+        raw_id = (label.findtext("id") or "").strip()
+        if not name or not raw_id:
+            raise ValueError(f"Each <label> in {path} must contain non-empty <name> and <id>")
+        label_id = int(raw_id)
+        if label_id in seen_ids:
+            raise ValueError(f"Duplicate label id {label_id} in {path}")
+        if name.casefold() in seen_names:
+            raise ValueError(f"Duplicate label name {name!r} in {path}")
+        seen_ids.add(label_id)
+        seen_names.add(name.casefold())
+        classes.append((name, label_id))
+    if not classes:
+        raise ValueError(f"No labels found in {path}")
+    return sorted(classes, key=lambda item: item[1])
+
+
 def classes_from_metadata(metadata: dict[str, Any]) -> list[tuple[str, int]]:
+    semantic_classes = metadata.get("semantic_classes")
+    if isinstance(semantic_classes, dict) and semantic_classes:
+        return sorted(
+            ((str(name), int(label_id)) for name, label_id in semantic_classes.items()),
+            key=lambda item: item[1],
+        )
+
     class_names = metadata.get("class_names")
     if not isinstance(class_names, list) or not class_names:
         return []

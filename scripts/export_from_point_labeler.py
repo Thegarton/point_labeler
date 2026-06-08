@@ -12,6 +12,7 @@ from point_labeler_bridge import (
     DEFAULT_WIDTH,
     labels_to_mask,
     load_label_file,
+    read_labels_xml,
     write_kitti_pose_values,
 )
 
@@ -25,6 +26,7 @@ def main() -> None:
         raise SystemExit(f"Missing bridge manifest: {manifest_path}")
 
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    classes = read_labels_xml(labeler_dir / "labels.xml")
     height = int(args.height or manifest.get("height") or DEFAULT_HEIGHT)
     width = int(args.width or manifest.get("width") or DEFAULT_WIDTH)
 
@@ -41,7 +43,7 @@ def main() -> None:
         np.save(mask_path, mask.astype(np.uint16, copy=False))
 
         metadata = dict(frame.get("source_metadata_payload") or {})
-        apply_manifest_classes(metadata, manifest)
+        apply_classes(metadata, classes)
         metadata.update(
             {
                 "frame_id": frame_id,
@@ -67,16 +69,15 @@ def main() -> None:
     print(json.dumps({"exported_frames": exported, "out_dir": str(out_dir)}, indent=2))
 
 
-def apply_manifest_classes(metadata: dict, manifest: dict) -> None:
-    classes = manifest.get("classes")
-    if not isinstance(classes, list) or not classes:
+def apply_classes(metadata: dict, classes: list[tuple[str, int]]) -> None:
+    if not classes:
         return
-    class_items = [
-        (str(item["name"]), int(item["id"]))
-        for item in classes
-        if isinstance(item, dict) and "name" in item and "id" in item
+    class_items = [(str(name), int(label_id)) for name, label_id in classes]
+    ignore_ids = [
+        label_id
+        for name, label_id in class_items
+        if label_id == 255 or name.casefold() in {"ignore", "ignored"}
     ]
-    ignore_ids = [label_id for name, label_id in class_items if label_id == 255 or name.casefold() == "ignore"]
     non_ignore = sorted(
         [(name, label_id) for name, label_id in class_items if label_id not in ignore_ids],
         key=lambda item: item[1],

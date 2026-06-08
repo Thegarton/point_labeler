@@ -103,6 +103,11 @@ python3 scripts/export_from_point_labeler.py \
   --out-dir /path/to/corrected_litept_out
 ```
 
+The exporter reads the current `labels.xml`, not the original bridge manifest. Classes added in the Point
+tab and colors/taxonomy edited after dataset preparation are therefore represented in exported
+`semantic_classes`. The corrected masks can be paired with this dataset's `velodyne/` files by
+`noise_segmentation/scripts/finetune_litept.py` to fine-tune LitePT on the custom taxonomy.
+
 If existing LitePT metadata contains `ego_pose`, it is preserved. Otherwise, when an INS file is
 available, the converter matches each frame to the nearest INS row by timestamp and writes `ego_pose`
 metadata plus KITTI-style `pose.txt` on export. By default it looks for either `<csv-dir>/ins` as a
