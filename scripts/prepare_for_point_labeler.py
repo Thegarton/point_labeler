@@ -30,6 +30,35 @@ DEFAULT_TILE_SIZE = 100.0
 DEFAULT_MAX_RANGE = 200.0
 TILE_MARGIN = 20.0
 RANGE_MARGIN = 10.0
+IGNORE_ID = 255
+
+DRIVING_V1_MERGE_GROUPS: list[tuple[str, tuple[str, ...]]] = [
+    ("TRUCK_BUS", ("Truck", "Bus", "Other Vehicle")),
+    ("Cyclist", ("Bicyclist", "Bicycle")),
+    ("motorcycle", ("Motorcyclist", "Motorcycle")),
+    ("ground", ("Walkable", "Sidewalk", "Lane Marker", "Road", "Curb")),
+    ("Thin vertical bar", ("Pole", "Tree Trunk")),
+]
+
+DRIVING_V1_TARGET_ORDER = [
+    "Car",
+    "TRUCK_BUS",
+    "Cyclist",
+    "motorcycle",
+    "Pedestrian",
+    "Sign",
+    "Traffic Light",
+    "Thin vertical bar",
+    "Construction Cone",
+    "Building",
+    "Vegetation",
+    "ground",
+    "Other Ground",
+]
+
+DRIVING_V1_REQUIRED_SOURCE_NAMES = {
+    source_name.casefold() for _, source_names in DRIVING_V1_MERGE_GROUPS for source_name in source_names
+}
 
 
 def main() -> None:
@@ -61,6 +90,9 @@ def main() -> None:
         classes_yaml=classes_yaml,
         csv_files=csv_files,
     )
+    class_merge = build_class_merge(class_definitions, preset=args.class_merge_preset)
+    label_remap = class_merge["source_id_to_target_id"]
+    class_definitions = class_merge["classes"]
     labels_xml = out_dir / "labels.xml"
     if args.overwrite_labels_xml or not labels_xml.exists():
         write_labels_xml(labels_xml, class_definitions)
@@ -72,6 +104,8 @@ def main() -> None:
         "pose_mode": args.pose_mode,
         "visualization_axis_mode": args.visualization_axis_mode,
         "class_source": class_source,
+        "class_merge": class_merge["metadata"],
+        "source_classes": class_merge["source_classes"],
         "classes": [{"name": name, "id": label_id} for name, label_id in class_definitions],
         "ins_path": str(ins_path) if ins_path is not None else None,
         "frames": [],
@@ -100,6 +134,7 @@ def main() -> None:
         mask_path = litept_output_dir / frame_id / "semantic_mask.npy" if litept_output_dir is not None else None
         if mask_path is not None and mask_path.exists():
             mask = load_semantic_mask(mask_path, height=args.height, width=args.width)
+            mask = remap_semantic_mask(mask, label_remap)
         else:
             mask = np.zeros((args.height, args.width), dtype=np.uint16)
 
@@ -189,6 +224,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--camera-id", default="P2", help="KITTI camera projection matrix used for RGB precompute.")
     parser.add_argument("--overwrite-rgb", action="store_true", help="Overwrite existing point_rgb/*.rgb files.")
     parser.add_argument("--overwrite-labels-xml", action="store_true")
+    parser.add_argument(
+        "--class-merge-preset",
+        choices=["auto", "none", "driving_v1"],
+        default="auto",
+        help="Merge source semantic ids before writing point_labeler labels. auto applies driving_v1 to the full driving taxonomy.",
+    )
     parser.add_argument("--pose-mode", choices=["relative_ego", "local_identity"], default="relative_ego")
     parser.add_argument(
         "--visualization-axis-mode",
@@ -270,6 +311,101 @@ def resolve_class_definitions(
         return read_semantic_classes(classes_yaml), str(classes_yaml)
 
     raise ValueError("Could not infer classes from LitePT metadata. Pass --classes-yaml as a fallback.")
+
+
+def build_class_merge(classes: list[tuple[str, int]], *, preset: str) -> dict:
+    source_classes = [{"name": name, "id": label_id} for name, label_id in classes]
+    if preset == "none" or (preset == "auto" and not should_apply_driving_v1_merge(classes)):
+        return {
+            "classes": classes,
+            "source_id_to_target_id": {label_id: label_id for _, label_id in classes},
+            "source_classes": source_classes,
+            "metadata": {
+                "preset": preset,
+                "applied": False,
+                "groups": [],
+                "source_id_to_target_id": {label_id: label_id for _, label_id in classes},
+            },
+        }
+    if preset not in {"auto", "driving_v1"}:
+        raise ValueError(f"Unsupported class merge preset: {preset}")
+    return build_driving_v1_class_merge(classes, requested_preset=preset)
+
+
+def should_apply_driving_v1_merge(classes: list[tuple[str, int]]) -> bool:
+    names = {name.casefold() for name, _ in classes}
+    return DRIVING_V1_REQUIRED_SOURCE_NAMES.issubset(names)
+
+
+def build_driving_v1_class_merge(classes: list[tuple[str, int]], *, requested_preset: str) -> dict:
+    source_to_target_name = {
+        source_name.casefold(): target_name
+        for target_name, source_names in DRIVING_V1_MERGE_GROUPS
+        for source_name in source_names
+    }
+    target_names_in_source_order: list[str] = []
+    source_target_names: dict[int, str] = {}
+    for source_name, source_id in classes:
+        if source_id == IGNORE_ID or source_name.casefold() == "ignore":
+            continue
+        target_name = source_to_target_name.get(source_name.casefold(), source_name)
+        source_target_names[source_id] = target_name
+        if target_name not in target_names_in_source_order:
+            target_names_in_source_order.append(target_name)
+
+    target_order = [
+        name for name in DRIVING_V1_TARGET_ORDER if name in target_names_in_source_order
+    ] + [
+        name for name in target_names_in_source_order if name not in DRIVING_V1_TARGET_ORDER
+    ]
+    target_name_to_id: dict[str, int] = {}
+    source_id_to_target_id: dict[int, int] = {}
+    merged_classes: list[tuple[str, int]] = []
+
+    for target_id, target_name in enumerate(target_order):
+        target_name_to_id[target_name] = target_id
+        merged_classes.append((target_name, target_id))
+
+    for source_id, target_name in source_target_names.items():
+        source_id_to_target_id[source_id] = target_name_to_id[target_name]
+
+    ignore_sources = [(name, label_id) for name, label_id in classes if label_id == IGNORE_ID or name.casefold() == "ignore"]
+    if ignore_sources:
+        merged_classes.append(("ignore", IGNORE_ID))
+        for _, source_id in ignore_sources:
+            source_id_to_target_id[source_id] = IGNORE_ID
+
+    groups = []
+    for target_name, source_names in DRIVING_V1_MERGE_GROUPS:
+        matched = [
+            {"name": source_name, "id": source_id}
+            for source_name, source_id in classes
+            if source_name.casefold() in {name.casefold() for name in source_names}
+        ]
+        if matched:
+            groups.append({"target": target_name, "target_id": target_name_to_id.get(target_name), "sources": matched})
+
+    return {
+        "classes": merged_classes,
+        "source_id_to_target_id": source_id_to_target_id,
+        "source_classes": [{"name": name, "id": label_id} for name, label_id in classes],
+        "metadata": {
+            "preset": requested_preset,
+            "applied": True,
+            "groups": groups,
+            "source_id_to_target_id": source_id_to_target_id,
+        },
+    }
+
+
+def remap_semantic_mask(mask: np.ndarray, source_id_to_target_id: dict[int, int]) -> np.ndarray:
+    out = np.asarray(mask, dtype=np.uint16).copy()
+    for source_id in np.unique(mask):
+        source_int = int(source_id)
+        if source_int not in source_id_to_target_id:
+            continue
+        out[mask == source_id] = np.uint16(source_id_to_target_id[source_int])
+    return out
 
 
 def ego_pose_from_kitti_pose_file(path: Path, *, timestamp_us: int | None) -> dict:

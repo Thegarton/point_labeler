@@ -3,6 +3,8 @@
 
 #include <stdint.h>
 #include <QtCore/QSignalMapper>
+#include <QtCore/QString>
+#include <QtGui/QColor>
 #include <QtWidgets/QMainWindow>
 #include <QtWidgets/QProgressBar>
 #include <future>
@@ -52,6 +54,11 @@ class Mainframe : public QMainWindow {
   void generateLabelButtons();
   void clearLabelButtons();
   void reloadLabelDefinitions();
+  void addLabelClass();
+  void changeSelectedLabelColor();
+  void selectLabelById(uint32_t labelId);
+  bool appendLabelDefinition(const QString& name, const QColor& color, uint32_t* newLabelId);
+  bool updateLabelColor(uint32_t labelId, const QColor& color);
   void closeEvent(QCloseEvent* event);
 
   void readConfig(const std::string& filename = "settings.cfg");

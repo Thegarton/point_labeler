@@ -474,6 +474,26 @@
                  </widget>
                 </item>
                 <item>
+                 <widget class="QToolButton" name="btnAddLabelClass">
+                  <property name="toolTip">
+                   <string>Add class</string>
+                  </property>
+                  <property name="text">
+                   <string>+</string>
+                  </property>
+                 </widget>
+                </item>
+                <item>
+                 <widget class="QToolButton" name="btnChangeLabelColor">
+                  <property name="toolTip">
+                   <string>Change selected class color</string>
+                  </property>
+                  <property name="text">
+                   <string>Color</string>
+                  </property>
+                 </widget>
+                </item>
+                <item>
                  <spacer name="horizontalSpacer_3">
                   <property name="orientation">
                    <enum>Qt::Horizontal</enum>

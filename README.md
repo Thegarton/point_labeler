@@ -88,6 +88,12 @@ use `--visualization-axis-mode kitti_x_forward` if your pose matrices are alread
 Per-frame poses are read in this order: `metadata.json` field `ego_pose`, then
 `<litept-output-dir>/<frame_id>/pose.txt` with 12 KITTI 3x4 values, then an INS file if one is available.
 INS is optional; by default it is searched as `<csv-dir>/ins` and can be overridden with `--ins-path`.
+For the full driving taxonomy, `prepare_for_point_labeler.py` automatically merges several LitePT classes before
+writing `.label` files and `labels.xml`: `Truck/Bus/Other Vehicle -> TRUCK_BUS`,
+`Bicyclist/Bicycle -> Cyclist`, `Motorcyclist/Motorcycle -> motorcycle`,
+`Walkable/Sidewalk/Lane Marker/Road/Curb -> ground`, and `Pole/Tree Trunk -> Thin vertical bar`.
+Use `--class-merge-preset none` to keep the original taxonomy, or `--class-merge-preset driving_v1` to force
+this merge preset.
 
 After manual editing and saving in the labeler, export corrected masks back to the LitePT layout:
 

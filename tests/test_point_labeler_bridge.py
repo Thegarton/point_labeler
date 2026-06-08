@@ -13,6 +13,31 @@ sys.path.insert(0, str(SCRIPTS))
 
 from point_labeler_bridge import project_rgb_to_points  # noqa: E402
 
+DRIVING_CLASSES = [
+    "Car",
+    "Truck",
+    "Bus",
+    "Other Vehicle",
+    "Motorcyclist",
+    "Bicyclist",
+    "Pedestrian",
+    "Sign",
+    "Traffic Light",
+    "Pole",
+    "Construction Cone",
+    "Bicycle",
+    "Motorcycle",
+    "Building",
+    "Vegetation",
+    "Tree Trunk",
+    "Curb",
+    "Road",
+    "Lane Marker",
+    "Other Ground",
+    "Walkable",
+    "Sidewalk",
+]
+
 
 def run_script(script: str, *args: str) -> None:
     env = {**os.environ, "PYTHONPATH": str(SCRIPTS)}
@@ -29,13 +54,13 @@ def write_classes(path: Path) -> None:
     )
 
 
-def write_metadata(path: Path, ego_pose: dict | None = None) -> None:
+def write_metadata(path: Path, ego_pose: dict | None = None, class_names: list[str] | None = None) -> None:
     metadata = {
         "frame_id": path.parent.name,
         "label_space": "litept_waymo_semseg",
         "litept_dataset": "waymo",
-        "class_names": ["Car", "Truck", "Road"],
-        "num_classes": 3,
+        "class_names": class_names or ["Car", "Truck", "Road"],
+        "num_classes": len(class_names or ["Car", "Truck", "Road"]),
         "ignore_index": 255,
     }
     if ego_pose is not None:
@@ -207,6 +232,70 @@ def test_prepare_keeps_pose_calib_identity_and_precomputes_point_rgb_from_rgb_ca
     assert manifest["frames"][0]["projected"] == 3
     assert manifest["calibration_type"] == "koide"
     assert manifest["calib_file"] == str(labeler_dir / "rgb_calib_koide.txt")
+
+
+def test_prepare_merges_driving_taxonomy_for_point_labeler(tmp_path: Path):
+    height, width = 1, 16
+    csv_dir = tmp_path / "csv"
+    csv_dir.mkdir()
+    write_xyz_csv(csv_dir / "frame_000.csv", height=height, width=width)
+
+    litept = tmp_path / "litept"
+    frame_out = litept / "frame_000"
+    frame_out.mkdir(parents=True)
+    source_mask = np.asarray(
+        [[1, 2, 3, 5, 11, 4, 12, 16, 17, 18, 20, 21, 9, 15, 6, 255]],
+        dtype=np.uint16,
+    )
+    np.save(frame_out / "semantic_mask.npy", source_mask)
+    write_metadata(frame_out / "metadata.json", class_names=DRIVING_CLASSES)
+
+    labeler_dir = tmp_path / "labeler"
+    run_script(
+        "prepare_for_point_labeler.py",
+        "--csv-dir",
+        str(csv_dir),
+        "--litept-output-dir",
+        str(litept),
+        "--out-dir",
+        str(labeler_dir),
+        "--height",
+        str(height),
+        "--width",
+        str(width),
+    )
+
+    manifest = json.loads((labeler_dir / "bridge_manifest.json").read_text(encoding="utf-8"))
+    merged_ids = {item["name"]: item["id"] for item in manifest["classes"]}
+    labels = np.fromfile(labeler_dir / "labels" / "frame_000.label", dtype=np.uint32)
+    labels_xml = (labeler_dir / "labels.xml").read_text(encoding="utf-8")
+
+    assert [item["name"] for item in manifest["classes"]] == [
+        "Car",
+        "TRUCK_BUS",
+        "Cyclist",
+        "motorcycle",
+        "Pedestrian",
+        "Sign",
+        "Traffic Light",
+        "Thin vertical bar",
+        "Construction Cone",
+        "Building",
+        "Vegetation",
+        "ground",
+        "Other Ground",
+        "ignore",
+    ]
+    assert labels[:3].tolist() == [merged_ids["TRUCK_BUS"]] * 3
+    assert labels[3:5].tolist() == [merged_ids["Cyclist"]] * 2
+    assert labels[5:7].tolist() == [merged_ids["motorcycle"]] * 2
+    assert labels[7:12].tolist() == [merged_ids["ground"]] * 5
+    assert labels[12:14].tolist() == [merged_ids["Thin vertical bar"]] * 2
+    assert labels[14] == merged_ids["Pedestrian"]
+    assert labels[15] == 255
+    assert "<name>TRUCK_BUS</name>" in labels_xml
+    assert "<name>Truck</name>" not in labels_xml
+    assert "<name>Road</name>" not in labels_xml
 
 
 def test_project_rgb_to_points_paints_invalid_points_black():

@@ -3,15 +3,21 @@
 #include <QtCore/QDir>
 #include <QtCore/QFile>
 #include <QtCore/QFileInfo>
+#include <QtCore/QTextStream>
 #include <QtGui/QClipboard>
+#include <QtWidgets/QColorDialog>
 #include <QtWidgets/QFileDialog>
+#include <QtWidgets/QInputDialog>
+#include <QtWidgets/QLineEdit>
 #include <QtWidgets/QMessageBox>
+#include <QtXml/QDomDocument>
 #include <boost/lexical_cast.hpp>
 #include <algorithm>
 #include <cctype>
 #include <fstream>
 #include <iostream>
 #include <map>
+#include <set>
 
 #include "../data/label_utils.h"
 #include "../data/misc.h"
@@ -34,6 +40,60 @@ template <class T>
 inline Blocker<T> whileBlocking(T* blocked) {
   return Blocker<T>(blocked);
 }
+
+namespace {
+
+QString labelColorText(const QColor& color) {
+  return QString("%1 %2 %3").arg(color.red()).arg(color.green()).arg(color.blue());
+}
+
+void setChildText(QDomDocument& doc, QDomElement& element, const QString& childName, const QString& text) {
+  QDomElement child = element.firstChildElement(childName);
+  if (child.isNull()) {
+    child = doc.createElement(childName);
+    element.appendChild(child);
+  }
+
+  while (!child.firstChild().isNull()) {
+    child.removeChild(child.firstChild());
+  }
+  child.appendChild(doc.createTextNode(text));
+}
+
+bool loadLabelDocument(const std::string& filename, QDomDocument& doc, QWidget* parent) {
+  QFile file(QString::fromStdString(filename));
+  if (!file.open(QIODevice::ReadOnly)) {
+    QMessageBox::warning(parent, "Labels", QString("Cannot open label file:\n%1").arg(file.fileName()));
+    return false;
+  }
+
+  if (!doc.setContent(&file)) {
+    QMessageBox::warning(parent, "Labels", QString("Cannot parse label file:\n%1").arg(file.fileName()));
+    return false;
+  }
+
+  return true;
+}
+
+bool writeLabelDocument(const std::string& filename, const QDomDocument& doc, QWidget* parent) {
+  QFile file(QString::fromStdString(filename));
+  if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text)) {
+    QMessageBox::warning(parent, "Labels", QString("Cannot write label file:\n%1").arg(file.fileName()));
+    return false;
+  }
+
+  QTextStream stream(&file);
+  stream << doc.toString(2);
+  stream.flush();
+  if (stream.status() != QTextStream::Ok) {
+    QMessageBox::warning(parent, "Labels", QString("Cannot write label file:\n%1").arg(file.fileName()));
+    return false;
+  }
+
+  return true;
+}
+
+}  // namespace
 
 Mainframe::Mainframe() : mChangesSinceLastSave(false) {
   ui.setupUi(this);
@@ -131,6 +191,9 @@ Mainframe::Mainframe() : mChangesSinceLastSave(false) {
     ui.btnButtonLayoutA->setChecked(false);
     updateLabelButtons();
   });
+
+  connect(ui.btnAddLabelClass, &QToolButton::released, [this]() { addLabelClass(); });
+  connect(ui.btnChangeLabelColor, &QToolButton::released, [this]() { changeSelectedLabelColor(); });
 
   connect(ui.cmbRootCategory, &QComboBox::currentTextChanged, [this]() { updateLabelButtons(); });
 
@@ -755,6 +818,134 @@ void Mainframe::reloadLabelDefinitions() {
   ui.mViewportXYZ->setInstanceableLabels(instanceableLabels);
   generateLabelButtons();
   updateLabelButtons();
+}
+
+void Mainframe::addLabelClass() {
+  bool ok = false;
+  QString name = QInputDialog::getText(this, "Add class", "Class name:", QLineEdit::Normal, "", &ok).trimmed();
+  if (!ok || name.isEmpty()) return;
+
+  for (const auto& label : labelDefinitions_) {
+    if (QString::fromStdString(label.name).compare(name, Qt::CaseInsensitive) == 0) {
+      QMessageBox::warning(this, "Labels", QString("Class already exists:\n%1").arg(name));
+      return;
+    }
+  }
+
+  QColor color = QColorDialog::getColor(QColor(120, 120, 120), this, QString("Color for %1").arg(name));
+  if (!color.isValid()) return;
+
+  uint32_t newLabelId = 0;
+  if (!appendLabelDefinition(name, color, &newLabelId)) return;
+
+  reloadLabelDefinitions();
+  selectLabelById(newLabelId);
+}
+
+void Mainframe::changeSelectedLabelColor() {
+  if (selectedLabelButtonIdx_ < 0 || selectedLabelButtonIdx_ >= static_cast<int32_t>(labelDefinitions_.size())) {
+    QMessageBox::warning(this, "Labels", "Select a class first.");
+    return;
+  }
+
+  const Label& label = labelDefinitions_[selectedLabelButtonIdx_];
+  uint32_t labelId = label.id;
+  QString labelName = QString::fromStdString(label.name);
+  QColor currentColor(label.color.R * 255, label.color.G * 255, label.color.B * 255);
+  QColor color = QColorDialog::getColor(currentColor, this, QString("Color for %1").arg(labelName));
+  if (!color.isValid()) return;
+
+  if (!updateLabelColor(labelId, color)) return;
+
+  reloadLabelDefinitions();
+  selectLabelById(labelId);
+}
+
+void Mainframe::selectLabelById(uint32_t labelId) {
+  for (uint32_t i = 0; i < labelDefinitions_.size(); ++i) {
+    if (labelDefinitions_[i].id == labelId ||
+        (labelDefinitions_[i].potentiallyMoving && labelDefinitions_[i].id_moving == labelId)) {
+      labelBtnReleased(labelButtons[i]);
+      return;
+    }
+  }
+}
+
+bool Mainframe::appendLabelDefinition(const QString& name, const QColor& color, uint32_t* newLabelId) {
+  QDomDocument doc("labels");
+  if (!loadLabelDocument(labelFilename_, doc, this)) return false;
+
+  QDomElement root = doc.firstChildElement("config");
+  if (root.isNull()) {
+    QMessageBox::warning(this, "Labels", "Label file does not contain a <config> root.");
+    return false;
+  }
+
+  std::set<uint32_t> usedIds;
+  for (QDomElement element = root.firstChildElement("label"); !element.isNull();
+       element = element.nextSiblingElement("label")) {
+    bool ok = false;
+    uint32_t id = element.firstChildElement("id").text().toUInt(&ok);
+    if (ok) usedIds.insert(id);
+
+    bool movingOk = false;
+    uint32_t movingId = element.firstChildElement("moving").text().toUInt(&movingOk);
+    if (movingOk) usedIds.insert(movingId);
+
+    if (element.firstChildElement("name").text().compare(name, Qt::CaseInsensitive) == 0) {
+      QMessageBox::warning(this, "Labels", QString("Class already exists:\n%1").arg(name));
+      return false;
+    }
+  }
+
+  uint32_t nextId = 0;
+  while (usedIds.count(nextId) > 0 || nextId == 255) {
+    ++nextId;
+  }
+
+  QString rootCategory = ui.cmbRootCategory->currentText().trimmed();
+  if (rootCategory.isEmpty() || rootCategory == "all" || rootCategory == "recently") {
+    rootCategory = "manual";
+  }
+
+  QDomElement label = doc.createElement("label");
+  setChildText(doc, label, "id", QString::number(nextId));
+  setChildText(doc, label, "name", name);
+  setChildText(doc, label, "description", "");
+  setChildText(doc, label, "color", labelColorText(color));
+  setChildText(doc, label, "root", rootCategory);
+  setChildText(doc, label, "macro", "");
+  setChildText(doc, label, "category", name);
+  root.appendChild(label);
+
+  if (!writeLabelDocument(labelFilename_, doc, this)) return false;
+
+  if (newLabelId != nullptr) *newLabelId = nextId;
+  return true;
+}
+
+bool Mainframe::updateLabelColor(uint32_t labelId, const QColor& color) {
+  QDomDocument doc("labels");
+  if (!loadLabelDocument(labelFilename_, doc, this)) return false;
+
+  QDomElement root = doc.firstChildElement("config");
+  if (root.isNull()) {
+    QMessageBox::warning(this, "Labels", "Label file does not contain a <config> root.");
+    return false;
+  }
+
+  for (QDomElement element = root.firstChildElement("label"); !element.isNull();
+       element = element.nextSiblingElement("label")) {
+    bool ok = false;
+    uint32_t id = element.firstChildElement("id").text().toUInt(&ok);
+    if (!ok || id != labelId) continue;
+
+    setChildText(doc, element, "color", labelColorText(color));
+    return writeLabelDocument(labelFilename_, doc, this);
+  }
+
+  QMessageBox::warning(this, "Labels", QString("Cannot find class id %1 in label file.").arg(labelId));
+  return false;
 }
 
 void Mainframe::updateFiltering(bool value) {

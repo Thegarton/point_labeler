@@ -41,6 +41,7 @@ def main() -> None:
         np.save(mask_path, mask.astype(np.uint16, copy=False))
 
         metadata = dict(frame.get("source_metadata_payload") or {})
+        apply_manifest_classes(metadata, manifest)
         metadata.update(
             {
                 "frame_id": frame_id,
@@ -64,6 +65,26 @@ def main() -> None:
         exported += 1
 
     print(json.dumps({"exported_frames": exported, "out_dir": str(out_dir)}, indent=2))
+
+
+def apply_manifest_classes(metadata: dict, manifest: dict) -> None:
+    classes = manifest.get("classes")
+    if not isinstance(classes, list) or not classes:
+        return
+    class_items = [
+        (str(item["name"]), int(item["id"]))
+        for item in classes
+        if isinstance(item, dict) and "name" in item and "id" in item
+    ]
+    ignore_ids = [label_id for name, label_id in class_items if label_id == 255 or name.casefold() == "ignore"]
+    non_ignore = sorted(
+        [(name, label_id) for name, label_id in class_items if label_id not in ignore_ids],
+        key=lambda item: item[1],
+    )
+    metadata["class_names"] = [name for name, _ in non_ignore]
+    metadata["semantic_classes"] = {name: label_id for name, label_id in class_items}
+    if ignore_ids:
+        metadata["ignore_index"] = ignore_ids[0]
 
 
 def parse_args() -> argparse.Namespace:
