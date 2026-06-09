@@ -20,6 +20,45 @@
 using namespace glow;
 using namespace rv;
 
+namespace {
+constexpr float kFastMovementMultiplier = 4.0f;
+
+class LabelerRoSeCamera : public RoSeCamera {
+ public:
+  bool keyPressed(KeyboardKey key, KeyboardModifier modifier) override {
+    const float heightFactor = (y_ > 50 ? 50 : (y_ > 1 ? y_ : 1));
+    const float speedMultiplier =
+        modifier == KeyboardModifier::ShiftDown ? kFastMovementMultiplier : 1.0f;
+    const float velocity = 10.0f * heightFactor * speedMultiplier;
+
+    switch (key) {
+      case KeyboardKey::KeyA:
+        startTime_ = std::chrono::system_clock::now();
+        startdrag_ = true;
+        sideVel_ = -velocity;
+        return true;
+      case KeyboardKey::KeyD:
+        startTime_ = std::chrono::system_clock::now();
+        startdrag_ = true;
+        sideVel_ = velocity;
+        return true;
+      case KeyboardKey::KeyW:
+        startTime_ = std::chrono::system_clock::now();
+        startdrag_ = true;
+        forwardVel_ = velocity;
+        return true;
+      case KeyboardKey::KeyS:
+        startTime_ = std::chrono::system_clock::now();
+        startdrag_ = true;
+        forwardVel_ = -velocity;
+        return true;
+      default:
+        return false;
+    }
+  }
+};
+}  // namespace
+
 Viewport::Viewport(QWidget* parent, Qt::WindowFlags f)
     : QGLWidget(parent, 0, f),
       contextInitialized_(initContext()),
@@ -117,7 +156,7 @@ Viewport::Viewport(QWidget* parent, Qt::WindowFlags f)
 
   setAutoFillBackground(false);
 
-  cameras_["Default"] = std::make_shared<RoSeCamera>();
+  cameras_["Default"] = std::make_shared<LabelerRoSeCamera>();
   cameras_["CAD"] = std::make_shared<CADCamera>();
   mCamera = cameras_["Default"];
 
@@ -1560,6 +1599,13 @@ void Viewport::keyPressEvent(QKeyEvent* event) {
         event->ignore();
       };
       return;
+    case Qt::Key_Shift:
+      if (event->isAutoRepeat()) return;
+      for (int key : pressedkeys) {
+        mCamera->keyPressed(resolveKeyboardKey(key), GlCamera::KeyboardModifier::ShiftDown);
+      }
+      event->accept();
+      return;
   }
   // handle event by parent:
   //  std::cout << event->key() << std::endl;
@@ -1584,6 +1630,13 @@ void Viewport::keyReleaseEvent(QKeyEvent* event) {
       } else {
         event->ignore();
       };
+      return;
+    case Qt::Key_Shift:
+      if (event->isAutoRepeat()) return;
+      for (int key : pressedkeys) {
+        mCamera->keyPressed(resolveKeyboardKey(key), GlCamera::KeyboardModifier::None);
+      }
+      event->accept();
       return;
   }
   event->ignore();

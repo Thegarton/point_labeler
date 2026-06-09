@@ -233,27 +233,31 @@ bool CADCamera::wheelEvent(float delta, KeyboardModifier modifier) {
 }
 
 bool CADCamera::keyPressed(KeyboardKey key, KeyboardModifier modifier) {
-  float factor = (y_ > 50 ? 50 : (y_ > 1 ? y_ : 1));
+  static const float FAST_MOVEMENT_MULTIPLIER = 4.0f;
+  const float factor = (y_ > 50 ? 50 : (y_ > 1 ? y_ : 1));
+  const float speedMultiplier =
+      modifier == KeyboardModifier::ShiftDown ? FAST_MOVEMENT_MULTIPLIER : 1.0f;
+  const float velocity = 10.0f * factor * speedMultiplier;
   switch (key) {
     case KeyboardKey::KeyA:
       startTime_ = std::chrono::system_clock::now();
       startdrag_ = true;
-      sideVel_ = -10 * factor;
+      sideVel_ = -velocity;
       return true;
     case KeyboardKey::KeyD:
       startTime_ = std::chrono::system_clock::now();
       startdrag_ = true;
-      sideVel_ = 10 * factor;
+      sideVel_ = velocity;
       return true;
     case KeyboardKey::KeyW:
       startTime_ = std::chrono::system_clock::now();
       startdrag_ = true;
-      forwardVel_ = 10 * factor;
+      forwardVel_ = velocity;
       return true;
     case KeyboardKey::KeyS:
       startTime_ = std::chrono::system_clock::now();
       startdrag_ = true;
-      forwardVel_ = -10 * factor;
+      forwardVel_ = -velocity;
       return true;
     default:
       return false;

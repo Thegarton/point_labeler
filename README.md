@@ -51,6 +51,8 @@ In the `bin` directory, just run `./labeler` to start the labeling tool.
 
 The labeling tool allows to label a sequence of point clouds in a tile-based fashion, i.e., the tool loads all scans overlapping with the current tile location.
 Thus, you will always label the part of the scans that overlaps with the current tile.
+Use `W`, `A`, `S`, and `D` to move the camera. Hold `Shift` while moving for 4x speed; acceleration can
+also be enabled or disabled while a movement key remains pressed.
 
 
 In the `settings.cfg` files you can change the following options:
