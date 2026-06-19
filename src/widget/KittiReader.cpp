@@ -20,20 +20,51 @@ void KittiReader::initialize(const QString& directory) {
   pointsCache_.clear();
   labelCache_.clear();
   tiles_.clear();
+  maxInstanceIds_.clear();
+  calib_.clear();
 
   base_dir_ = QDir(directory);
   QDir velodyne_dir(base_dir_.filePath("velodyne"));
-  QStringList entries = velodyne_dir.entryList(QDir::Files, QDir::Name);
+  if (!velodyne_dir.exists() && allowVelodyneOnly_) {
+    velodyne_dir = base_dir_;
+    std::cout << "-- Missing velodyne/ directory, reading .bin files directly from selected directory." << std::endl;
+  }
+  QStringList filters;
+  filters << "*.bin";
+  QStringList entries = velodyne_dir.entryList(filters, QDir::Files, QDir::Name);
   for (int32_t i = 0; i < entries.size(); ++i) {
     velodyne_filenames_.push_back(velodyne_dir.filePath(entries.at(i)).toStdString());
   }
 
-  if (!base_dir_.exists("calib.txt"))
+  if (velodyne_filenames_.empty()) {
+    throw std::runtime_error("No .bin point clouds found in " + velodyne_dir.path().toStdString());
+  }
+
+  if (!base_dir_.exists("calib.txt") && !allowVelodyneOnly_)
     throw std::runtime_error("Missing calibration file: " + base_dir_.filePath("calib.txt").toStdString());
 
-  calib_.initialize(base_dir_.filePath("calib.txt").toStdString());
+  if (base_dir_.exists("calib.txt")) {
+    calib_.initialize(base_dir_.filePath("calib.txt").toStdString());
+  } else {
+    std::cout << "-- Missing calib.txt, using identity calibration for velodyne-only view mode." << std::endl;
+  }
 
-  readPoses(base_dir_.filePath("poses.txt").toStdString(), poses_);
+  if (base_dir_.exists("poses.txt")) {
+    readPoses(base_dir_.filePath("poses.txt").toStdString(), poses_);
+  } else if (allowVelodyneOnly_) {
+    poses_.assign(velodyne_filenames_.size(), Eigen::Matrix4f::Identity());
+    std::cout << "-- Missing poses.txt, using identity poses for " << poses_.size()
+              << " scans in velodyne-only view mode." << std::endl;
+  } else {
+    throw std::runtime_error("Missing pose file: " + base_dir_.filePath("poses.txt").toStdString());
+  }
+
+  if (poses_.size() != velodyne_filenames_.size()) {
+    std::stringstream ss;
+    ss << "Number of poses (" << poses_.size() << ") does not match number of point clouds ("
+       << velodyne_filenames_.size() << ").";
+    throw std::runtime_error(ss.str());
+  }
 
   // create label dir, etc.
   QDir labels_dir(base_dir_.filePath("labels"));
@@ -434,7 +465,12 @@ void KittiReader::readPoses(const std::string& filename, std::vector<Eigen::Matr
   poses = KITTI::Odometry::loadPoses(filename);
 
   // convert from camera to velodyne coordinate system.
-  Eigen::Matrix4f Tr = calib_["Tr"];
+  Eigen::Matrix4f Tr = Eigen::Matrix4f::Identity();
+  if (calib_.exists("Tr")) {
+    Tr = calib_["Tr"];
+  } else {
+    std::cout << "-- Calibration matrix Tr is missing, using identity pose calibration." << std::endl;
+  }
   Eigen::Matrix4f Tr_inv = Tr.inverse();
   for (uint32_t i = 0; i < poses.size(); ++i) {
     poses[i] = Tr_inv * poses[i] * Tr;

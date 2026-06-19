@@ -64,8 +64,20 @@ max scans: 500    # number of scans to load for a tile. (should be maybe 1000), 
 min range: 0.0    # minimum distance of points to consider.
 max range: 50.0   # maximum distance of points in the point cloud.
 add car points: true # add points at the origin of the sensor possibly caused by the car itself. Default: false.
+allow velodyne only: true # allow viewing raw .bin point clouds without poses.txt, calib.txt, or labels.
 
 </pre>
+
+For quick inspection of raw point clouds, the selected directory may contain only `*.bin` files, or a
+`velodyne/` subdirectory with `*.bin` files. Add this to `settings.cfg` in the selected directory:
+
+```text
+allow velodyne only: true
+```
+
+In this mode the viewer uses identity calibration and one identity pose per scan, then creates zero-filled
+`.label` files in `labels/` when they are missing. Since all scans share the same synthetic pose, they are
+loaded into the same tile; reduce `max scans` if you only want to view a smaller batch at once.
 
 ## CSV/LitePT bridge
 
@@ -204,6 +216,9 @@ point cloud folder
 ├── rgb_calib.txt [optional] -- camera projection calibration used by precompute_point_rgb.py.
 └── poses.txt             -- file containing the poses of every scan.
 </pre>
+
+For raw viewing only, `calib.txt`, `poses.txt`, and `labels/` may be omitted when `settings.cfg` contains
+`allow velodyne only: true`.
 
  
 

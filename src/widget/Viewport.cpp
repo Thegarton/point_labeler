@@ -1579,7 +1579,7 @@ void Viewport::keyPressEvent(QKeyEvent* event) {
     case Qt::Key_W:
     case Qt::Key_A:
     case Qt::Key_S:
-    case Qt::Key_D:
+    case Qt::Key_D: {
 
       if (event->isAutoRepeat()) return;
       //      std::cout << event->key() << std::endl;
@@ -1599,6 +1599,7 @@ void Viewport::keyPressEvent(QKeyEvent* event) {
         event->ignore();
       };
       return;
+    }
     case Qt::Key_Shift:
       if (event->isAutoRepeat()) return;
       for (int key : pressedkeys) {
@@ -1618,7 +1619,7 @@ void Viewport::keyReleaseEvent(QKeyEvent* event) {
     case Qt::Key_W:
     case Qt::Key_A:
     case Qt::Key_S:
-    case Qt::Key_D:
+    case Qt::Key_D: {
       if (event->isAutoRepeat()) return;
       pressedkeys.erase(event->key());
       if (pressedkeys.empty()) {
@@ -1631,6 +1632,7 @@ void Viewport::keyReleaseEvent(QKeyEvent* event) {
         event->ignore();
       };
       return;
+    }
     case Qt::Key_Shift:
       if (event->isAutoRepeat()) return;
       for (int key : pressedkeys) {

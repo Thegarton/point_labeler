@@ -78,6 +78,7 @@ class Mainframe : public QMainWindow {
   std::vector<uint32_t> filteredLabels;
   std::string filename;
   std::string labelFilename_{"labels.xml"};
+  bool allowVelodyneOnly_{false};
 
   void keyPressEvent(QKeyEvent* event);
   void keyReleaseEvent(QKeyEvent* event);

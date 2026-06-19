@@ -513,6 +513,7 @@ def settings_content(out_dir: Path, *, max_abs_xy: float, max_range: float) -> s
             "render points as spheres: true",
             "shade point spheres: true",
             "show intensity: false",
+            "allow velodyne only: false",
             f"tile size: {tile_size:.3f}",
             "max scans: 500",
             "min range: 0.0",

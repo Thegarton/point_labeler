@@ -41,6 +41,7 @@ class KittiReader {
   uint32_t count() const { return velodyne_filenames_.size(); }
 
   void setMaximumDistance(float distance) { maxDistance_ = distance; }
+  void setAllowVelodyneOnly(bool value) { allowVelodyneOnly_ = value; }
 
   /** \brief get points, labels, and images for given world coordinates. **/
   void retrieve(const Eigen::Vector3f& position, std::vector<uint32_t>& indexes, std::vector<PointcloudPtr>& points,
@@ -99,6 +100,7 @@ class KittiReader {
   std::vector<Eigen::Vector2f> trajectory_;
 
   std::map<uint32_t, uint32_t> maxInstanceIds_;
+  bool allowVelodyneOnly_{false};
 };
 
 #endif /* SRC_WIDGET_KITTIREADER_H_ */

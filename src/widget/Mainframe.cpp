@@ -14,6 +14,7 @@
 #include <boost/lexical_cast.hpp>
 #include <algorithm>
 #include <cctype>
+#include <exception>
 #include <fstream>
 #include <iostream>
 #include <map>
@@ -91,6 +92,19 @@ bool writeLabelDocument(const std::string& filename, const QDomDocument& doc, QW
   }
 
   return true;
+}
+
+bool configBool(const std::string& value) {
+  std::string cleaned = trim(value);
+  std::transform(cleaned.begin(), cleaned.end(), cleaned.begin(),
+                 [](unsigned char c) { return std::tolower(c); });
+  return cleaned == "true" || cleaned == "1" || cleaned == "yes" || cleaned == "on";
+}
+
+bool hasDirectBinFiles(const QDir& directory) {
+  QStringList filters;
+  filters << "*.bin";
+  return !directory.entryList(filters, QDir::Files, QDir::Name).empty();
 }
 
 }  // namespace
@@ -577,25 +591,44 @@ void Mainframe::open() {
   if (!retValue.isNull()) {
     QDir base_dir(retValue);
 
-    if (!base_dir.exists("velodyne") || !base_dir.exists("poses.txt")) {
-      std::cout << "[ERROR] velodyne or poses.txt missing." << std::endl;
-      return;
-    }
-
     labelFilename_ = "labels.xml";
+    allowVelodyneOnly_ = false;
+    reader_.setAllowVelodyneOnly(false);
     readLabelConfig();
     if (base_dir.exists("settings.cfg")) {
       std::string datasetConfig = base_dir.filePath("settings.cfg").toStdString();
       readLabelConfig(datasetConfig);
       readConfig(datasetConfig);
     }
+
+    bool hasVelodyneDirectory = base_dir.exists("velodyne");
+    bool hasDirectVelodyneBins = hasDirectBinFiles(base_dir);
+    if (!hasVelodyneDirectory && !(allowVelodyneOnly_ && hasDirectVelodyneBins)) {
+      std::cout << "[ERROR] velodyne missing. Select a dataset with velodyne/ or enable "
+                   "'allow velodyne only: true' for a directory containing .bin files."
+                << std::endl;
+      return;
+    }
+    if ((!base_dir.exists("poses.txt") || !base_dir.exists("calib.txt")) && !allowVelodyneOnly_) {
+      std::cout << "[ERROR] poses.txt or calib.txt missing. Add 'allow velodyne only: true' to settings.cfg "
+                   "to view raw velodyne .bin files without metadata."
+                << std::endl;
+      return;
+    }
+
     if (base_dir.exists("labels.xml")) {
       labelFilename_ = base_dir.filePath("labels.xml").toStdString();
       std::cout << "-- Using dataset labels file " << labelFilename_ << std::endl;
     }
     reloadLabelDefinitions();
 
-    reader_.initialize(retValue);
+    try {
+      reader_.initialize(retValue);
+    } catch (const std::exception& e) {
+      QMessageBox::warning(this, "Dataset", QString("Cannot open dataset:\n%1").arg(e.what()));
+      std::cout << "[ERROR] " << e.what() << std::endl;
+      return;
+    }
 
     ui.mViewportXYZ->setMaximumInstanceIds(reader_.getMaxInstanceIds());
 
@@ -1277,10 +1310,16 @@ void Mainframe::readConfig(const std::string& filename) {
     }
     if (key == "show intensity") {
       std::string value = trim(tokens[1]);
-      bool enabled = value == "true" || value == "True" || value == "1";
+      bool enabled = configBool(value);
       ui.chkShowIntensity->setChecked(enabled);
       ui.mViewportXYZ->setDrawingOption("intensity", enabled);
       std::cout << "-- Setting 'show intensity' to " << (enabled ? "true" : "false") << std::endl;
+    }
+    if (key == "allow velodyne only") {
+      bool enabled = configBool(tokens[1]);
+      allowVelodyneOnly_ = enabled;
+      reader_.setAllowVelodyneOnly(enabled);
+      std::cout << "-- Setting 'allow velodyne only' to " << (enabled ? "true" : "false") << std::endl;
     }
     if (key == "flip mouse buttons") {
       float value = boost::lexical_cast<float>(trim(tokens[1]));
