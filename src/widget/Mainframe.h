@@ -50,6 +50,7 @@ class Mainframe : public QMainWindow {
   void setTileIndex(uint32_t i, uint32_t j);
 
   void setCurrentScanIdx(int32_t idx);
+  void updateImageViewer(int32_t idx);
 
   void generateLabelButtons();
   void clearLabelButtons();
@@ -79,6 +80,7 @@ class Mainframe : public QMainWindow {
   std::string filename;
   std::string labelFilename_{"labels.xml"};
   bool allowVelodyneOnly_{false};
+  bool readPointsFromCsv_{false};
 
   void keyPressEvent(QKeyEvent* event);
   void keyReleaseEvent(QKeyEvent* event);

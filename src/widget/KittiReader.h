@@ -42,6 +42,13 @@ class KittiReader {
 
   void setMaximumDistance(float distance) { maxDistance_ = distance; }
   void setAllowVelodyneOnly(bool value) { allowVelodyneOnly_ = value; }
+  void setReadPointsFromCsv(bool value) { readPointsFromCsv_ = value; }
+  void setCsvProjectionImageSize(uint32_t width, uint32_t height) {
+    csvProjectionImageWidth_ = width;
+    csvProjectionImageHeight_ = height;
+  }
+  void setCsvProjectionImageWidth(uint32_t width) { csvProjectionImageWidth_ = width; }
+  void setCsvProjectionImageHeight(uint32_t height) { csvProjectionImageHeight_ = height; }
 
   /** \brief get points, labels, and images for given world coordinates. **/
   void retrieve(const Eigen::Vector3f& position, std::vector<uint32_t>& indexes, std::vector<PointcloudPtr>& points,
@@ -72,7 +79,9 @@ class KittiReader {
  protected:
   void readPoints(const std::string& filename, Laserscan& scan);
   void readPoints(const std::string& filename, const std::string& rgb_filename, Laserscan& scan);
+  void readCsvPoints(const std::string& filename, const std::string& image_filename, Laserscan& scan);
   void readPointColors(const std::string& filename, uint32_t num_points, std::vector<Point3f>& colors);
+  uint32_t countCsvPoints(const std::string& filename) const;
   void readLabels(const std::string& filename, std::vector<uint32_t>& labels);
   void readPoses(const std::string& filename, std::vector<Eigen::Matrix4f>& poses);
 
@@ -83,6 +92,7 @@ class KittiReader {
   std::vector<std::string> label_filenames_;
   std::vector<std::string> image_filenames_;
   std::vector<std::string> rgb_filenames_;
+  std::vector<std::string> projection_image_filenames_;
 
   // cache reads from before.
   std::map<uint32_t, PointcloudPtr> pointsCache_;
@@ -101,6 +111,9 @@ class KittiReader {
 
   std::map<uint32_t, uint32_t> maxInstanceIds_;
   bool allowVelodyneOnly_{false};
+  bool readPointsFromCsv_{false};
+  uint32_t csvProjectionImageWidth_{1920};
+  uint32_t csvProjectionImageHeight_{1536};
 };
 
 #endif /* SRC_WIDGET_KITTIREADER_H_ */

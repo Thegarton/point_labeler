@@ -65,6 +65,9 @@ min range: 0.0    # minimum distance of points to consider.
 max range: 50.0   # maximum distance of points in the point cloud.
 add car points: true # add points at the origin of the sensor possibly caused by the car itself. Default: false.
 allow velodyne only: true # allow viewing raw .bin point clouds without poses.txt, calib.txt, or labels.
+point cloud source: velodyne # use "csv" to read point clouds from csv/*.csv instead of velodyne/*.bin.
+csv image width: 1920 # expected image-plane width for CSV Cxd/Cyd coordinates.
+csv image height: 1536 # expected image-plane height for CSV Cxd/Cyd coordinates.
 
 </pre>
 
@@ -78,6 +81,21 @@ allow velodyne only: true
 In this mode the viewer uses identity calibration and one identity pose per scan, then creates zero-filled
 `.label` files in `labels/` when they are missing. Since all scans share the same synthetic pose, they are
 loaded into the same tile; reduce `max scans` if you only want to view a smaller batch at once.
+
+To inspect point clouds stored as tables, put them into a `csv/` subdirectory and enable CSV mode:
+
+```text
+point cloud source: csv
+csv image width: 1920
+csv image height: 1536
+```
+
+Each table must have a header and at least `x`, `y`, `z`, and `intensity` columns. Comma, tab, and
+whitespace-separated rows are accepted. If the table also contains `Cxd` and `Cyd`, and `image_2/<frame>.jpg`,
+`.jpeg`, or `.png` exists with the same frame basename (`Image_2` is also accepted), the labeler samples camera RGB
+from that pixel and stores it in the loaded scan. Enable the existing `camera RGB` checkbox to display those projected
+image colors. The image viewer also draws the `Cxd/Cyd` points over the current frame. In CSV mode `poses.txt` and
+`calib.txt` are optional; missing files are replaced with identity poses/calibration for viewing.
 
 ## CSV/LitePT bridge
 
@@ -209,6 +227,7 @@ When loading a dataset, the data must be organized as follows:
 <pre>
 point cloud folder
 ├── velodyne/             -- directory containing ".bin" files with Velodyne point clouds.   
+├── csv/      [optional]  -- point tables with x/y/z/intensity and optional Cxd/Cyd image coordinates.
 ├── labels/   [optional]  -- label directory, will be generated if not present.  
 ├── image_2/  [optional]  -- directory containing ".png" files from the color   camera.  
 ├── point_rgb/ [optional] -- precomputed camera RGB colors for points.

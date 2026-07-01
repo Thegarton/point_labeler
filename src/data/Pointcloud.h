@@ -15,6 +15,7 @@ class Laserscan {
     points.clear();
     remissions.clear();
     colors.clear();
+    image_points.clear();
   }
   uint32_t size() const { return points.size(); }
   bool hasRemissions() const { return (points.size() > 0) && (points.size() == remissions.size()); }
@@ -24,6 +25,7 @@ class Laserscan {
   std::vector<Point3f> points;
   std::vector<float> remissions;
   std::vector<Point3f> colors;
+  std::vector<Eigen::Vector2f> image_points;
 };
 
 #endif /* SRC_DATA_POINTCLOUD_H_ */

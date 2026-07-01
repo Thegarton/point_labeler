@@ -2,19 +2,118 @@
 #include <widget/KittiReader.h>
 
 #include <QtCore/QDir>
+#include <QtCore/QFileInfo>
+#include <QtGui/QColor>
+#include <QtGui/QImage>
 #include <boost/lexical_cast.hpp>
 #include <boost/tokenizer.hpp>
+#include <algorithm>
+#include <cerrno>
+#include <cctype>
+#include <cmath>
+#include <cstdlib>
 #include <fstream>
 #include <iostream>
+#include <limits>
+#include <map>
+#include <stdexcept>
 #include <sstream>
 
 #include "rv/string_utils.h"
+
+namespace {
+
+std::string lowerTrimmed(std::string value) {
+  value = rv::trim(value);
+  if (value.size() >= 3 && static_cast<unsigned char>(value[0]) == 0xEF &&
+      static_cast<unsigned char>(value[1]) == 0xBB && static_cast<unsigned char>(value[2]) == 0xBF) {
+    value = value.substr(3);
+  }
+  std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) { return std::tolower(c); });
+  return value;
+}
+
+std::vector<std::string> splitTableRow(const std::string& line) {
+  if (line.find(',') != std::string::npos) {
+    std::vector<std::string> tokens = rv::split(line, ",", false);
+    for (std::string& token : tokens) token = rv::trim(token);
+    return tokens;
+  }
+
+  std::vector<std::string> tokens;
+  std::stringstream ss(line);
+  std::string token;
+  while (ss >> token) tokens.push_back(token);
+  return tokens;
+}
+
+std::map<std::string, uint32_t> parseHeaderColumns(const std::vector<std::string>& header) {
+  std::map<std::string, uint32_t> columns;
+  for (uint32_t i = 0; i < header.size(); ++i) {
+    std::string name = lowerTrimmed(header[i]);
+    if (!name.empty() && columns.find(name) == columns.end()) columns[name] = i;
+  }
+  return columns;
+}
+
+uint32_t requireColumn(const std::map<std::string, uint32_t>& columns, const std::string& name,
+                       const std::string& filename) {
+  auto it = columns.find(name);
+  if (it == columns.end()) {
+    std::stringstream ss;
+    ss << "CSV point cloud " << filename << " is missing required column '" << name << "'.";
+    throw std::runtime_error(ss.str());
+  }
+  return it->second;
+}
+
+bool optionalColumn(const std::map<std::string, uint32_t>& columns, const std::string& name, uint32_t& index) {
+  auto it = columns.find(name);
+  if (it == columns.end()) return false;
+  index = it->second;
+  return true;
+}
+
+float parseCsvFloat(const std::vector<std::string>& tokens, uint32_t column, const std::string& column_name,
+                    const std::string& filename, uint32_t line_number) {
+  if (column >= tokens.size()) {
+    std::stringstream ss;
+    ss << "CSV point cloud " << filename << " line " << line_number << " has no value for column '" << column_name
+       << "'.";
+    throw std::runtime_error(ss.str());
+  }
+
+  std::string value = rv::trim(tokens[column]);
+  const char* begin = value.c_str();
+  char* end = nullptr;
+  errno = 0;
+  float parsed = std::strtof(begin, &end);
+  if (begin == end || errno == ERANGE || !std::isfinite(parsed) || !rv::trim(std::string(end)).empty()) {
+    std::stringstream ss;
+    ss << "CSV point cloud " << filename << " line " << line_number << " has invalid float in column '"
+       << column_name << "': " << value;
+    throw std::runtime_error(ss.str());
+  }
+  return parsed;
+}
+
+bool readHeaderLine(std::ifstream& in, std::string& header_line, uint32_t& line_number) {
+  while (std::getline(in, header_line)) {
+    ++line_number;
+    header_line = rv::trim(header_line);
+    if (!header_line.empty()) return true;
+  }
+  return false;
+}
+
+}  // namespace
 
 void KittiReader::initialize(const QString& directory) {
   velodyne_filenames_.clear();
   label_filenames_.clear();
   image_filenames_.clear();
   rgb_filenames_.clear();
+  projection_image_filenames_.clear();
   poses_.clear();
 
   pointsCache_.clear();
@@ -24,37 +123,50 @@ void KittiReader::initialize(const QString& directory) {
   calib_.clear();
 
   base_dir_ = QDir(directory);
-  QDir velodyne_dir(base_dir_.filePath("velodyne"));
-  if (!velodyne_dir.exists() && allowVelodyneOnly_) {
+  const bool metadataFallback = allowVelodyneOnly_ || readPointsFromCsv_;
+  QDir velodyne_dir(readPointsFromCsv_ ? base_dir_.filePath("csv") : base_dir_.filePath("velodyne"));
+  if (readPointsFromCsv_ && !velodyne_dir.exists() && base_dir_.exists("CSV")) {
+    velodyne_dir = QDir(base_dir_.filePath("CSV"));
+  }
+  if (!velodyne_dir.exists() && allowVelodyneOnly_ && !readPointsFromCsv_) {
     velodyne_dir = base_dir_;
     std::cout << "-- Missing velodyne/ directory, reading .bin files directly from selected directory." << std::endl;
   }
   QStringList filters;
-  filters << "*.bin";
+  if (readPointsFromCsv_) {
+    filters << "*.csv"
+            << "*.tsv"
+            << "*.txt";
+  } else {
+    filters << "*.bin";
+  }
   QStringList entries = velodyne_dir.entryList(filters, QDir::Files, QDir::Name);
   for (int32_t i = 0; i < entries.size(); ++i) {
     velodyne_filenames_.push_back(velodyne_dir.filePath(entries.at(i)).toStdString());
   }
 
   if (velodyne_filenames_.empty()) {
-    throw std::runtime_error("No .bin point clouds found in " + velodyne_dir.path().toStdString());
+    std::stringstream ss;
+    ss << "No " << (readPointsFromCsv_ ? "CSV" : ".bin") << " point clouds found in "
+       << velodyne_dir.path().toStdString();
+    throw std::runtime_error(ss.str());
   }
 
-  if (!base_dir_.exists("calib.txt") && !allowVelodyneOnly_)
+  if (!base_dir_.exists("calib.txt") && !metadataFallback)
     throw std::runtime_error("Missing calibration file: " + base_dir_.filePath("calib.txt").toStdString());
 
   if (base_dir_.exists("calib.txt")) {
     calib_.initialize(base_dir_.filePath("calib.txt").toStdString());
   } else {
-    std::cout << "-- Missing calib.txt, using identity calibration for velodyne-only view mode." << std::endl;
+    std::cout << "-- Missing calib.txt, using identity calibration for raw point cloud view mode." << std::endl;
   }
 
   if (base_dir_.exists("poses.txt")) {
     readPoses(base_dir_.filePath("poses.txt").toStdString(), poses_);
-  } else if (allowVelodyneOnly_) {
+  } else if (metadataFallback) {
     poses_.assign(velodyne_filenames_.size(), Eigen::Matrix4f::Identity());
     std::cout << "-- Missing poses.txt, using identity poses for " << poses_.size()
-              << " scans in velodyne-only view mode." << std::endl;
+              << " scans in raw point cloud view mode." << std::endl;
   } else {
     throw std::runtime_error("Missing pose file: " + base_dir_.filePath("poses.txt").toStdString());
   }
@@ -75,10 +187,15 @@ void KittiReader::initialize(const QString& directory) {
   for (uint32_t i = 0; i < velodyne_filenames_.size(); ++i) {
     QString filename = QFileInfo(QString::fromStdString(velodyne_filenames_[i])).baseName() + ".label";
     if (!labels_dir.exists(filename)) {
-      std::ifstream in(velodyne_filenames_[i].c_str());
-      in.seekg(0, std::ios::end);
-      uint32_t num_points = in.tellg() / (4 * sizeof(float));
-      in.close();
+      uint32_t num_points = 0;
+      if (readPointsFromCsv_) {
+        num_points = countCsvPoints(velodyne_filenames_[i]);
+      } else {
+        std::ifstream in(velodyne_filenames_[i].c_str());
+        in.seekg(0, std::ios::end);
+        num_points = in.tellg() / (4 * sizeof(float));
+        in.close();
+      }
 
       std::ofstream out(labels_dir.filePath(filename).toStdString().c_str());
 
@@ -93,21 +210,27 @@ void KittiReader::initialize(const QString& directory) {
 
   std::string missing_img = QDir::currentPath().toStdString() + "/../assets/missing.png";
   QDir image_dir(base_dir_.filePath("image_2"));
+  if (!image_dir.exists() && base_dir_.exists("Image_2")) image_dir = QDir(base_dir_.filePath("Image_2"));
   QDir rgb_dir(base_dir_.filePath("point_rgb"));
   for (uint32_t i = 0; i < velodyne_filenames_.size(); ++i) {
     QString filename_base = QFileInfo(QString::fromStdString(velodyne_filenames_[i])).baseName();
     QString filename_jpg = filename_base + ".jpg";
     QString filename_jpeg = filename_base + ".jpeg";
     QString filename_png = filename_base + ".png";
+    std::string projection_image;
     if (image_dir.exists(filename_jpg)) {
-      image_filenames_.push_back(image_dir.filePath(filename_jpg).toStdString());
+      projection_image = image_dir.filePath(filename_jpg).toStdString();
+      image_filenames_.push_back(projection_image);
     } else if (image_dir.exists(filename_jpeg)) {
-      image_filenames_.push_back(image_dir.filePath(filename_jpeg).toStdString());
+      projection_image = image_dir.filePath(filename_jpeg).toStdString();
+      image_filenames_.push_back(projection_image);
     } else if (image_dir.exists(filename_png)) {
-      image_filenames_.push_back(image_dir.filePath(filename_png).toStdString());
+      projection_image = image_dir.filePath(filename_png).toStdString();
+      image_filenames_.push_back(projection_image);
     } else {
       image_filenames_.push_back(missing_img);
     }
+    projection_image_filenames_.push_back(projection_image);
     rgb_filenames_.push_back(rgb_dir.filePath(filename_base + ".rgb").toStdString());
   }
 
@@ -296,7 +419,11 @@ void KittiReader::retrieve(uint32_t i, uint32_t j, std::vector<uint32_t>& indexe
       scansRead += 1;
 
       points.push_back(std::shared_ptr<Laserscan>(new Laserscan));
-      readPoints(velodyne_filenames_[t], rgb_filenames_[t], *points.back());
+      if (readPointsFromCsv_) {
+        readCsvPoints(velodyne_filenames_[t], projection_image_filenames_[t], *points.back());
+      } else {
+        readPoints(velodyne_filenames_[t], rgb_filenames_[t], *points.back());
+      }
       pointsCache_[t] = points.back();
       points.back()->pose = poses_[t];
 
@@ -413,6 +540,110 @@ void KittiReader::readPoints(const std::string& filename, const std::string& rgb
   }
 
   if (rgb_filename.size() > 0) readPointColors(rgb_filename, num_points, colors);
+}
+
+uint32_t KittiReader::countCsvPoints(const std::string& filename) const {
+  std::ifstream in(filename.c_str());
+  if (!in.is_open()) {
+    throw std::runtime_error("Unable to open CSV point cloud: " + filename);
+  }
+
+  std::string line;
+  uint32_t line_number = 0;
+  if (!readHeaderLine(in, line, line_number)) {
+    throw std::runtime_error("CSV point cloud is empty: " + filename);
+  }
+  std::map<std::string, uint32_t> columns = parseHeaderColumns(splitTableRow(line));
+  requireColumn(columns, "x", filename);
+  requireColumn(columns, "y", filename);
+  requireColumn(columns, "z", filename);
+  requireColumn(columns, "intensity", filename);
+
+  uint32_t num_points = 0;
+  while (std::getline(in, line)) {
+    if (!rv::trim(line).empty()) ++num_points;
+  }
+  return num_points;
+}
+
+void KittiReader::readCsvPoints(const std::string& filename, const std::string& image_filename, Laserscan& scan) {
+  std::ifstream in(filename.c_str());
+  if (!in.is_open()) {
+    throw std::runtime_error("Unable to open CSV point cloud: " + filename);
+  }
+
+  scan.clear();
+
+  std::string line;
+  uint32_t line_number = 0;
+  if (!readHeaderLine(in, line, line_number)) {
+    throw std::runtime_error("CSV point cloud is empty: " + filename);
+  }
+
+  std::vector<std::string> header = splitTableRow(line);
+  std::map<std::string, uint32_t> columns = parseHeaderColumns(header);
+  const uint32_t x_col = requireColumn(columns, "x", filename);
+  const uint32_t y_col = requireColumn(columns, "y", filename);
+  const uint32_t z_col = requireColumn(columns, "z", filename);
+  const uint32_t intensity_col = requireColumn(columns, "intensity", filename);
+
+  uint32_t cxd_col = 0;
+  uint32_t cyd_col = 0;
+  const bool has_projection = optionalColumn(columns, "cxd", cxd_col) && optionalColumn(columns, "cyd", cyd_col);
+
+  QImage image;
+  bool sample_image_colors = false;
+  if (has_projection && !image_filename.empty()) {
+    image = QImage(QString::fromStdString(image_filename));
+    if (!image.isNull()) {
+      sample_image_colors = true;
+      if (csvProjectionImageWidth_ > 0 && csvProjectionImageHeight_ > 0 &&
+          (uint32_t(image.width()) != csvProjectionImageWidth_ ||
+           uint32_t(image.height()) != csvProjectionImageHeight_)) {
+        std::cout << "-- Warning: image size for " << image_filename << " is " << image.width() << "x"
+                  << image.height() << ", while CSV projection settings expect " << csvProjectionImageWidth_ << "x"
+                  << csvProjectionImageHeight_ << "." << std::endl;
+      }
+    }
+  }
+
+  std::vector<Point3f>& points = scan.points;
+  std::vector<float>& remissions = scan.remissions;
+  std::vector<Point3f>& colors = scan.colors;
+  std::vector<Eigen::Vector2f>& image_points = scan.image_points;
+
+  while (std::getline(in, line)) {
+    ++line_number;
+    if (rv::trim(line).empty()) continue;
+
+    std::vector<std::string> tokens = splitTableRow(line);
+    Point3f point;
+    point.x = parseCsvFloat(tokens, x_col, "x", filename, line_number);
+    point.y = parseCsvFloat(tokens, y_col, "y", filename, line_number);
+    point.z = parseCsvFloat(tokens, z_col, "z", filename, line_number);
+    float intensity = parseCsvFloat(tokens, intensity_col, "intensity", filename, line_number);
+
+    Point3f color;
+    if (has_projection) {
+      float cxd = parseCsvFloat(tokens, cxd_col, "Cxd", filename, line_number);
+      float cyd = parseCsvFloat(tokens, cyd_col, "Cyd", filename, line_number);
+      image_points.push_back(Eigen::Vector2f(cxd, cyd));
+      if (sample_image_colors) {
+        int32_t u = int32_t(std::round(cxd));
+        int32_t v = int32_t(std::round(cyd));
+        if (u >= 0 && v >= 0 && u < image.width() && v < image.height()) {
+          QColor pixel = image.pixelColor(u, v);
+          color.x = float(pixel.red()) / 255.0f;
+          color.y = float(pixel.green()) / 255.0f;
+          color.z = float(pixel.blue()) / 255.0f;
+        }
+      }
+    }
+
+    points.push_back(point);
+    remissions.push_back(intensity);
+    colors.push_back(color);
+  }
 }
 
 void KittiReader::readPointColors(const std::string& filename, uint32_t num_points, std::vector<Point3f>& colors) {

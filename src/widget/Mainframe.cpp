@@ -107,6 +107,14 @@ bool hasDirectBinFiles(const QDir& directory) {
   return !directory.entryList(filters, QDir::Files, QDir::Name).empty();
 }
 
+bool hasCsvPointFiles(const QDir& directory) {
+  QStringList filters;
+  filters << "*.csv"
+          << "*.tsv"
+          << "*.txt";
+  return !directory.entryList(filters, QDir::Files, QDir::Name).empty();
+}
+
 }  // namespace
 
 Mainframe::Mainframe() : mChangesSinceLastSave(false) {
@@ -184,7 +192,7 @@ Mainframe::Mainframe() : mChangesSinceLastSave(false) {
   connect(ui.actionShowImage, &QAction::triggered, [this]() {
     if (images_.size() > 0) {
       wImgWidget_->show();
-      wImgWidget_->setImage(images_[ui.sldTimeline->value()]);
+      updateImageViewer(ui.sldTimeline->value());
       ui.mViewportXYZ->setDrawingOption("show camera", true);
     }
   });
@@ -593,7 +601,9 @@ void Mainframe::open() {
 
     labelFilename_ = "labels.xml";
     allowVelodyneOnly_ = false;
+    readPointsFromCsv_ = false;
     reader_.setAllowVelodyneOnly(false);
+    reader_.setReadPointsFromCsv(false);
     readLabelConfig();
     if (base_dir.exists("settings.cfg")) {
       std::string datasetConfig = base_dir.filePath("settings.cfg").toStdString();
@@ -601,17 +611,28 @@ void Mainframe::open() {
       readConfig(datasetConfig);
     }
 
-    bool hasVelodyneDirectory = base_dir.exists("velodyne");
-    bool hasDirectVelodyneBins = hasDirectBinFiles(base_dir);
-    if (!hasVelodyneDirectory && !(allowVelodyneOnly_ && hasDirectVelodyneBins)) {
-      std::cout << "[ERROR] velodyne missing. Select a dataset with velodyne/ or enable "
-                   "'allow velodyne only: true' for a directory containing .bin files."
-                << std::endl;
-      return;
+    if (readPointsFromCsv_) {
+      QDir csvDir(base_dir.filePath("csv"));
+      if (!csvDir.exists() && base_dir.exists("CSV")) csvDir = QDir(base_dir.filePath("CSV"));
+      if (!csvDir.exists() || !hasCsvPointFiles(csvDir)) {
+        std::cout << "[ERROR] csv missing. Select a dataset with csv/*.csv, csv/*.tsv, or csv/*.txt point tables."
+                  << std::endl;
+        return;
+      }
+    } else {
+      bool hasVelodyneDirectory = base_dir.exists("velodyne");
+      bool hasDirectVelodyneBins = hasDirectBinFiles(base_dir);
+      if (!hasVelodyneDirectory && !(allowVelodyneOnly_ && hasDirectVelodyneBins)) {
+        std::cout << "[ERROR] velodyne missing. Select a dataset with velodyne/ or enable "
+                     "'allow velodyne only: true' for a directory containing .bin files."
+                  << std::endl;
+        return;
+      }
     }
-    if ((!base_dir.exists("poses.txt") || !base_dir.exists("calib.txt")) && !allowVelodyneOnly_) {
+    if ((!base_dir.exists("poses.txt") || !base_dir.exists("calib.txt")) &&
+        !(allowVelodyneOnly_ || readPointsFromCsv_)) {
       std::cout << "[ERROR] poses.txt or calib.txt missing. Add 'allow velodyne only: true' to settings.cfg "
-                   "to view raw velodyne .bin files without metadata."
+                   "to view raw .bin files without metadata, or use 'point cloud source: csv'."
                 << std::endl;
       return;
     }
@@ -1065,7 +1086,17 @@ void Mainframe::setTileIndex(uint32_t i, uint32_t j) {
 void Mainframe::setCurrentScanIdx(int32_t idx) {
   ui.mViewportXYZ->setDrawingOption("show camera", wImgWidget_->isVisible());
   ui.mViewportXYZ->setScanIndex(idx);
-  if (images_.size() > uint32_t(idx)) wImgWidget_->setImage(images_[idx]);
+  updateImageViewer(idx);
+}
+
+void Mainframe::updateImageViewer(int32_t idx) {
+  if (idx < 0 || images_.size() <= uint32_t(idx)) return;
+
+  const std::vector<Eigen::Vector2f>* projected_points = nullptr;
+  if (points_.size() > uint32_t(idx) && points_[idx] != nullptr && !points_[idx]->image_points.empty()) {
+    projected_points = &points_[idx]->image_points;
+  }
+  wImgWidget_->setImage(images_[idx], projected_points);
 }
 
 void Mainframe::readAsync(uint32_t i, uint32_t j) {
@@ -1320,6 +1351,30 @@ void Mainframe::readConfig(const std::string& filename) {
       allowVelodyneOnly_ = enabled;
       reader_.setAllowVelodyneOnly(enabled);
       std::cout << "-- Setting 'allow velodyne only' to " << (enabled ? "true" : "false") << std::endl;
+    }
+    if (key == "point cloud source") {
+      std::string value = trim(tokens[1]);
+      std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) { return std::tolower(c); });
+      bool enabled = value == "csv" || value == "csv table" || value == "table";
+      readPointsFromCsv_ = enabled;
+      reader_.setReadPointsFromCsv(enabled);
+      std::cout << "-- Setting 'point cloud source' to " << (enabled ? "csv" : "velodyne") << std::endl;
+    }
+    if (key == "read points from csv") {
+      bool enabled = configBool(tokens[1]);
+      readPointsFromCsv_ = enabled;
+      reader_.setReadPointsFromCsv(enabled);
+      std::cout << "-- Setting 'read points from csv' to " << (enabled ? "true" : "false") << std::endl;
+    }
+    if (key == "csv image width") {
+      uint32_t width = boost::lexical_cast<uint32_t>(trim(tokens[1]));
+      reader_.setCsvProjectionImageWidth(width);
+      std::cout << "-- Setting 'csv image width' to " << width << std::endl;
+    }
+    if (key == "csv image height") {
+      uint32_t height = boost::lexical_cast<uint32_t>(trim(tokens[1]));
+      reader_.setCsvProjectionImageHeight(height);
+      std::cout << "-- Setting 'csv image height' to " << height << std::endl;
     }
     if (key == "flip mouse buttons") {
       float value = boost::lexical_cast<float>(trim(tokens[1]));
