@@ -29,13 +29,19 @@ def main() -> None:
     classes = read_labels_xml(labeler_dir / "labels.xml")
     height = int(args.height or manifest.get("height") or DEFAULT_HEIGHT)
     width = int(args.width or manifest.get("width") or DEFAULT_WIDTH)
+    manifest_label_layout = str(manifest.get("label_layout") or "range_image")
 
     exported = 0
     for frame in manifest.get("frames", []):
         frame_id = str(frame["frame_id"])
         label_path = labeler_dir / "labels" / f"{frame_id}.label"
-        labels = load_label_file(label_path, height=height, width=width)
-        mask = labels_to_mask(labels, height=height, width=width)
+        label_layout = str(frame.get("label_layout") or manifest_label_layout)
+        if label_layout == "flat_points":
+            labels = load_flat_label_file(label_path, expected_count=frame.get("point_count"))
+            mask = labels_to_flat_mask(labels)
+        else:
+            labels = load_label_file(label_path, height=height, width=width)
+            mask = labels_to_mask(labels, height=height, width=width)
 
         frame_out = out_dir / frame_id
         frame_out.mkdir(parents=True, exist_ok=True)
@@ -49,6 +55,9 @@ def main() -> None:
                 "frame_id": frame_id,
                 "semantic_mask": str(mask_path),
                 "confidence_mask": None,
+                "label_layout": label_layout,
+                "point_count": int(mask.size),
+                "mask_shape": [int(value) for value in mask.shape],
                 "pose": None,
                 "pseudo_label_version": args.pseudo_label_version,
                 "provenance": args.provenance,
@@ -86,6 +95,20 @@ def apply_classes(metadata: dict, classes: list[tuple[str, int]]) -> None:
     metadata["semantic_classes"] = {name: label_id for name, label_id in class_items}
     if ignore_ids:
         metadata["ignore_index"] = ignore_ids[0]
+
+
+def load_flat_label_file(path: Path, *, expected_count: object | None) -> np.ndarray:
+    labels = np.fromfile(path, dtype=np.uint32)
+    if expected_count is not None:
+        expected = int(expected_count)
+        if labels.shape != (expected,):
+            raise ValueError(f"Label file {path} has {labels.size} labels, expected {expected}")
+    return labels
+
+
+def labels_to_flat_mask(labels: np.ndarray) -> np.ndarray:
+    flat = np.asarray(labels, dtype=np.uint32)
+    return (flat & np.uint32(0xFFFF)).astype(np.uint16, copy=False)
 
 
 def parse_args() -> argparse.Namespace:

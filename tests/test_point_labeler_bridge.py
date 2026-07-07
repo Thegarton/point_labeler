@@ -225,6 +225,54 @@ def test_export_uses_current_labels_xml_including_ui_added_classes(tmp_path: Pat
     assert metadata["ignore_index"] == 255
 
 
+def test_export_flat_point_labels_when_manifest_requests_flat_points(tmp_path: Path):
+    labeler_dir = tmp_path / "labeler"
+    (labeler_dir / "labels").mkdir(parents=True)
+    np.asarray([2, 9, 255], dtype=np.uint32).tofile(labeler_dir / "labels" / "000001.label")
+    (labeler_dir / "labels.xml").write_text(
+        "<config>"
+        "<label><id>2</id><name>CAR</name><color>1 2 3</color><root>manual</root></label>"
+        "<label><id>9</id><name>thin_vertical_bar</name><color>4 5 6</color><root>manual</root></label>"
+        "<label><id>255</id><name>ignore</name><color>120 120 120</color><root>manual</root></label>"
+        "</config>",
+        encoding="utf-8",
+    )
+    (labeler_dir / "bridge_manifest.json").write_text(
+        json.dumps(
+            {
+                "label_layout": "flat_points",
+                "frames": [
+                    {
+                        "frame_id": "000001",
+                        "point_count": 3,
+                        "source_metadata_payload": {"source": "sam3_lifted"},
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    corrected = tmp_path / "corrected"
+    run_script(
+        "export_from_point_labeler.py",
+        "--labeler-dir",
+        str(labeler_dir),
+        "--out-dir",
+        str(corrected),
+    )
+
+    mask = np.load(corrected / "000001" / "semantic_mask.npy")
+    assert mask.shape == (3,)
+    assert mask.tolist() == [2, 9, 255]
+    metadata = json.loads((corrected / "000001" / "metadata.json").read_text(encoding="utf-8"))
+    assert metadata["label_layout"] == "flat_points"
+    assert metadata["point_count"] == 3
+    assert metadata["mask_shape"] == [3]
+    assert metadata["source"] == "sam3_lifted"
+    assert metadata["semantic_classes"] == {"CAR": 2, "thin_vertical_bar": 9, "ignore": 255}
+
+
 def test_classes_from_metadata_prefers_sparse_semantic_class_ids():
     classes = classes_from_metadata(
         {
