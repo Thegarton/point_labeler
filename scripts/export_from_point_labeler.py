@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+import xml.etree.ElementTree as ET
 
 import numpy as np
 
@@ -12,7 +13,6 @@ from point_labeler_bridge import (
     DEFAULT_WIDTH,
     labels_to_mask,
     load_label_file,
-    read_labels_xml,
     write_kitti_pose_values,
 )
 
@@ -109,6 +109,36 @@ def load_flat_label_file(path: Path, *, expected_count: object | None) -> np.nda
 def labels_to_flat_mask(labels: np.ndarray) -> np.ndarray:
     flat = np.asarray(labels, dtype=np.uint32)
     return (flat & np.uint32(0xFFFF)).astype(np.uint16, copy=False)
+
+
+def read_labels_xml(path: Path) -> list[tuple[str, int]]:
+    if not path.is_file():
+        raise FileNotFoundError(f"Labels XML does not exist: {path}")
+    try:
+        root = ET.parse(path).getroot()
+    except ET.ParseError as exc:
+        raise ValueError(f"Cannot parse labels XML {path}: {exc}") from exc
+
+    classes: list[tuple[str, int]] = []
+    seen_ids: set[int] = set()
+    seen_names: set[str] = set()
+    for label in root.findall("label"):
+        name = (label.findtext("name") or "").strip()
+        raw_id = (label.findtext("id") or "").strip()
+        if not name or not raw_id:
+            raise ValueError(f"Each <label> in {path} must contain non-empty <name> and <id>")
+        label_id = int(raw_id)
+        name_key = name.casefold()
+        if label_id in seen_ids:
+            raise ValueError(f"Duplicate label id {label_id} in {path}")
+        if name_key in seen_names:
+            raise ValueError(f"Duplicate label name {name!r} in {path}")
+        seen_ids.add(label_id)
+        seen_names.add(name_key)
+        classes.append((name, label_id))
+    if not classes:
+        raise ValueError(f"No labels found in {path}")
+    return classes
 
 
 def parse_args() -> argparse.Namespace:
