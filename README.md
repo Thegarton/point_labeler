@@ -4,7 +4,7 @@
 The current workflow is point-wise and flat: one CSV row, one LiDAR point, one label.
 
 This README intentionally documents the HL320 workflow only.
-
+p
 ## Build
 
 ### Ubuntu
@@ -252,56 +252,4 @@ HL320_output_sam3_manual_104/export/
 ```
 
 The exported `metadata.json` is generated from the current `labels.xml`, so class ids, names, and classes added in the
-UI are preserved.
-
-## Fine-Tune LitePT After Export
-
-Use the exported directory as `--export-dir` and the same labeler dataset as `--labeler-dir`:
-
-```bash
-PROJECT_ROOT="/home/a60116606/git_repo/noise_seg/pipline_v0"
-LITEPT_ROOT="/home/a60116606/git_repo/LitePT"
-POINT_LABELER_ROOT="/home/a60116606/git_repo/point_labeler"
-
-LABELER_DIR="$POINT_LABELER_ROOT/HL320_output_sam3_manual_104"
-EXPORT_DIR="$LABELER_DIR/export"
-OUT_DIR="$PROJECT_ROOT/output/HL320_output_sam3_manual_104/fine_tune"
-
-cd "$PROJECT_ROOT/scripts"
-
-/home/a60116606/miniconda3/envs/litept/bin/python finetune_litept.py \
-  --litept-root "$LITEPT_ROOT" \
-  --export-dir "$EXPORT_DIR" \
-  --labeler-dir "$LABELER_DIR" \
-  --output-dir "$OUT_DIR" \
-  --epochs 100 \
-  --val-ratio 0.10 \
-  --batch-size 2 \
-  --num-workers 4 \
-  --grid-size 0.05 \
-  --head-lr 1e-4 \
-  --backbone-lr 1e-5 \
-  --class-weighting sqrt_inverse \
-  --max-class-weight 10 \
-  --noise-frame-repeat 6 \
-  --overwrite \
-  --seed 42 \
-  --num-gpus 1 \
-  --force-torch-pointrope
-```
-
-## Sanity Checks
-
-Before fine-tuning, check:
-
-- `labels/<frame>.label` count equals CSV row count.
-- `export/<frame>/semantic_mask.npy` shape is `(N,)`.
-- `velodyne/<frame>.bin` contains `N * 4` float32 values.
-- Background is `0`, ignored points are `255`.
-- `Cxd/Cyd` are present in CSV if you want image-projection visualization.
-
-The key invariant is always:
-
-```text
-CSV row i == velodyne point i == label i == exported semantic_mask[i]
-```
+UI are preserved.s
