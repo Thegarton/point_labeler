@@ -55,5 +55,13 @@ add_executable(labeler
   widget/ImageViewer.cpp
 )
 
-target_link_libraries(labeler ${Boost_LIBRARIES} glow glow_util Qt5::Xml Qt5::OpenGL Qt5::Widgets
-  pthread)
+target_link_libraries(labeler
+  PRIVATE
+    ${Boost_LIBRARIES}
+    glow
+    glow_util
+    Qt5::Xml
+    Qt5::OpenGL
+    Qt5::Widgets
+    Threads::Threads
+)

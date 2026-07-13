@@ -1,262 +1,307 @@
-# Point Cloud Labeling Tool
+# HL320 Point Labeler
 
- Tool for labeling of a single point clouds or a stream of point clouds. 
- 
-<img src="https://user-images.githubusercontent.com/11506664/63230808-340d5680-c212-11e9-8902-bc08f0f64dc8.png" width=500>
+`point_labeler` is used here as a manual correction tool for HL320 LiDAR point labels.
+The current workflow is point-wise and flat: one CSV row, one LiDAR point, one label.
 
- Given the poses of a KITTI point cloud dataset, we load tiles of overlapping point clouds. Thus, multiple point clouds are labeled at once in a certain area. 
+This README intentionally documents the HL320 workflow only.
 
-## Features
- - Support for KITTI Vision Benchmark Point Clouds.
- - Human-readable label description files in xml allow to define label names, ids, and colors.
- - Modern OpenGL shaders for rendering of even millions of points.
- - Tools for labeling of individual points and polygons.
- - Filtering of labels makes it easy to label even complicated structures with ease.
-
-## Dependencies
-
-* Eigen >= 3.2
-* boost >= 1.54
-* QT >= 5.2
-* OpenGL Core Profile >= 4.0
- 
 ## Build
-  
-On Ubuntu 22.04/20.04, the dependencies can be installed from the package manager:
+
+### Ubuntu
+
 ```bash
 sudo apt install cmake g++ git libeigen3-dev libboost-all-dev qtbase5-dev libglew-dev
-```
 
-Then, build the project, change to the cloned directory and use the following commands:
-```bash
 cmake -S . -B build
-cmake --build build
+cmake --build build --parallel
 ```
 
-Alternatively, you can also use the "classical" cmake build procedure:
+The executable is written to:
+
 ```bash
-mkdir build && cd build
-cmake ..
-make -j5
+./bin/labeler
 ```
 
+### Windows
 
-Now the project root directory (e.g. `~/point_labeler`) should contain a `bin` directory containing the labeler.
+Use Visual Studio 2022, CMake, and vcpkg.
 
+```powershell
+cd C:\src
+git clone https://github.com/microsoft/vcpkg.git
+cd C:\src\vcpkg
+.\bootstrap-vcpkg.bat
+```
 
-## Usage
+Build from **Developer PowerShell for VS 2022**:
 
+```powershell
+cd C:\src\point_labeler
 
-In the `bin` directory, just run `./labeler` to start the labeling tool. 
+cmake -S . -B build-windows `
+  -G "Visual Studio 17 2022" `
+  -A x64 `
+  -DCMAKE_TOOLCHAIN_FILE=C:/src/vcpkg/scripts/buildsystems/vcpkg.cmake `
+  -DVCPKG_TARGET_TRIPLET=x64-windows `
+  -DPOINT_LABELER_BUILD_TESTS=OFF
 
-The labeling tool allows to label a sequence of point clouds in a tile-based fashion, i.e., the tool loads all scans overlapping with the current tile location.
-Thus, you will always label the part of the scans that overlaps with the current tile.
-Use `W`, `A`, `S`, and `D` to move the camera. Hold `Shift` while moving for 4x speed; acceleration can
-also be enabled or disabled while a movement key remains pressed.
+cmake --build build-windows --config Release --parallel
+```
 
+The executable is written to:
 
-In the `settings.cfg` files you can change the following options:
+```powershell
+.\bin\labeler.exe
+```
 
-<pre>
+If Qt DLLs are missing at startup:
 
-tile size: 100.0   # size of a tile (the smaller the less scans get loaded.)
-max scans: 500    # number of scans to load for a tile. (should be maybe 1000), but this is currently very memory-consuming.
-min range: 0.0    # minimum distance of points to consider.
-max range: 50.0   # maximum distance of points in the point cloud.
-add car points: true # add points at the origin of the sensor possibly caused by the car itself. Default: false.
-allow velodyne only: true # allow viewing raw .bin point clouds without poses.txt, calib.txt, or labels.
-point cloud source: velodyne # use "csv" to read point clouds from csv/*.csv instead of velodyne/*.bin.
-csv image width: 1920 # expected image-plane width for CSV Cxd/Cyd coordinates.
-csv image height: 1536 # expected image-plane height for CSV Cxd/Cyd coordinates.
+```powershell
+C:\src\vcpkg\installed\x64-windows\tools\Qt5\bin\windeployqt.exe .\bin\labeler.exe
+```
 
-</pre>
+The viewer needs a GPU/driver with OpenGL Core Profile support. Remote desktop and VMs may expose too old an OpenGL
+context.
 
-For quick inspection of raw point clouds, the selected directory may contain only `*.bin` files, or a
-`velodyne/` subdirectory with `*.bin` files. Add this to `settings.cfg` in the selected directory:
+## HL320 Data Model
+
+HL320 point tables are flat CSV files. The point order in the CSV is the source of truth.
+
+Required columns:
+
+```text
+x y z intensity
+```
+
+Useful HL320 columns:
+
+```text
+azimuth vertical slot pixel hcell vcell Cxd Cyd
+```
+
+Important:
+
+- `slot` and `pixel` are acquisition indices. They are not image axes and are not a reliable range-image layout.
+- Do not reshape labels by `slot/pixel` for training or export.
+- `Cxd` and `Cyd` are the camera-image coordinates for each LiDAR point.
+- Point `i` in CSV row `i` must correspond to label `i` in `labels/<frame>.label`.
+- Exported masks for this workflow are 1D arrays: `semantic_mask.npy.shape == (N,)`.
+
+## Dataset Layout
+
+A labeler dataset should look like this:
+
+```text
+HL320_output/
+├── csv/
+│   ├── 000000.csv
+│   ├── 000001.csv
+│   └── ...
+├── velodyne/
+│   ├── 000000.bin
+│   ├── 000001.bin
+│   └── ...
+├── labels/
+│   ├── 000000.label
+│   ├── 000001.label
+│   └── ...
+├── image_2/
+│   ├── 000000.jpg
+│   ├── 000001.jpg
+│   └── ...
+├── point_rgb/                 # optional
+├── labels.xml
+├── settings.cfg
+├── bridge_manifest.json
+├── calib.txt                  # identity is fine for this flat workflow
+└── poses.txt                  # identity poses are fine for this flat workflow
+```
+
+`velodyne/<frame>.bin` is raw float32 `N x 4` in this order:
+
+```text
+x y z intensity
+```
+
+`labels/<frame>.label` is raw uint32 with exactly `N` labels.
+
+`bridge_manifest.json` must mark this as a flat-point dataset:
+
+```json
+{
+  "label_layout": "flat_points",
+  "frames": [
+    {
+      "frame_id": "000000",
+      "label_layout": "flat_points",
+      "source_csv": "/path/to/csv/000000.csv",
+      "point_count": 19968
+    }
+  ]
+}
+```
+
+The exporter uses `label_layout: flat_points` to write 1D `semantic_mask.npy` files instead of old 2D range images.
+
+## Settings
+
+For HL320 flat data, `settings.cfg` should contain:
 
 ```text
 allow velodyne only: true
-```
-
-In this mode the viewer uses identity calibration and one identity pose per scan, then creates zero-filled
-`.label` files in `labels/` when they are missing. Since all scans share the same synthetic pose, they are
-loaded into the same tile; reduce `max scans` if you only want to view a smaller batch at once.
-
-To inspect point clouds stored as tables, put them into a `csv/` subdirectory and enable CSV mode:
-
-```text
-point cloud source: csv
+point cloud source: velodyne
 csv image width: 1920
 csv image height: 1536
 ```
 
-Each table must have a header and at least `x`, `y`, `z`, and `intensity` columns. Comma, tab, and
-whitespace-separated rows are accepted. If the table also contains `Cxd` and `Cyd`, and `image_2/<frame>.jpg`,
-`.jpeg`, or `.png` exists with the same frame basename (`Image_2` is also accepted), the labeler samples camera RGB
-from that pixel and stores it in the loaded scan. Enable the existing `camera RGB` checkbox to display those projected
-image colors. The image viewer also draws the `Cxd/Cyd` points over the current frame. In CSV mode `poses.txt` and
-`calib.txt` are optional; missing files are replaced with identity poses/calibration for viewing.
+Notes:
 
-## CSV/LitePT bridge
+- Use `point cloud source: velodyne` for manual labeling when the dataset already contains converted `.bin` files.
+- Keep the matching original CSV files in `csv/` so the image viewer and external visualization scripts can use `Cxd/Cyd`.
+- `allow velodyne only: true` lets the tool run even with identity/missing real poses and calibration.
+- Reduce `max scans` if too many identity-pose scans are loaded together.
 
-CSV frames and LitePT semantic masks can be converted to the KITTI-like layout expected by this tool:
+## Labels
 
-```bash
-python3 scripts/prepare_for_point_labeler.py \
-  --csv-dir /path/to/data/2026_01_12_13_16_21_frames_192 \
-  --litept-output-dir /path/to/output/2026_01_12_13_16_21_frames_192/litept_waymo \
-  --out-dir /path/to/labeler_dataset
-```
-
-The generated dataset contains `velodyne/`, `labels/`, `poses.txt`, `calib.txt`, `labels.xml`,
-`bridge_manifest.json`, `settings.cfg`, and `settings.cfg.example`. Use the generated `labels file` setting so the UI
-uses the same semantic ids as the LitePT masks. Class names are read from the LitePT per-frame
-`metadata.json` `class_names` field; `--classes-yaml` is only a fallback when metadata is missing.
-If the CSV directory contains synced camera frames named `frame_id.jpg`, `frame_id.jpeg`, or `frame_id.png`,
-they are copied into `image_2/` and recorded in `bridge_manifest.json`.
-For labeler visualization, `poses.txt` is written relative to the earliest ego pose. The default
-`--visualization-axis-mode ego_y_forward` maps ego/INS `+Y` motion to KITTI/Velodyne `+X` forward;
-use `--visualization-axis-mode kitti_x_forward` if your pose matrices are already in KITTI axes.
-Per-frame poses are read in this order: `metadata.json` field `ego_pose`, then
-`<litept-output-dir>/<frame_id>/pose.txt` with 12 KITTI 3x4 values, then an INS file if one is available.
-INS is optional; by default it is searched as `<csv-dir>/ins` and can be overridden with `--ins-path`.
-For the full driving taxonomy, `prepare_for_point_labeler.py` automatically merges several LitePT classes before
-writing `.label` files and `labels.xml`: `Truck/Bus/Other Vehicle -> TRUCK_BUS`,
-`Bicyclist/Bicycle -> Cyclist`, `Motorcyclist/Motorcycle -> motorcycle`,
-`Walkable/Sidewalk/Lane Marker/Road/Curb -> ground`, and `Pole/Tree Trunk -> Thin vertical bar`.
-Use `--class-merge-preset none` to keep the original taxonomy, or `--class-merge-preset driving_v1` to force
-this merge preset.
-
-After manual editing and saving in the labeler, export corrected masks back to the LitePT layout:
-
-```bash
-python3 scripts/export_from_point_labeler.py \
-  --labeler-dir /path/to/labeler_dataset \
-  --out-dir /path/to/corrected_litept_out
-```
-
-The exporter reads the current `labels.xml`, not the original bridge manifest. Classes added in the Point
-tab and colors/taxonomy edited after dataset preparation are therefore represented in exported
-`semantic_classes`. The corrected masks can be paired with this dataset's `velodyne/` files by
-`noise_segmentation/scripts/finetune_litept.py` to fine-tune LitePT on the custom taxonomy.
-
-If existing LitePT metadata contains `ego_pose`, it is preserved. Otherwise, when an INS file is
-available, the converter matches each frame to the nearest INS row by timestamp and writes `ego_pose`
-metadata plus KITTI-style `pose.txt` on export. By default it looks for either `<csv-dir>/ins` as a
-single file or one `*.csv`/`*.tsv` file inside the `<csv-dir>/ins/` directory; use `--ins-path` to
-override that.
-
-## Camera RGB point coloring
-
-`calib.txt` is used by the labeler for scan poses. Keep it as the identity/default pose calibration unless
-you really need KITTI pose conversion. Camera projection uses a separate KITTI-style RGB calibration file
-with a camera projection matrix such as `P2` and LiDAR-to-camera `Tr`.
-
-The two calibration files intentionally mean different things:
-
-- `calib.txt` in the labeler dataset is pose calibration for loading scans and `poses.txt`. For the CSV/LitePT
-  bridge it should normally contain only identity `Tr`.
-- `rgb_calib.txt` or `rgb_calib_<type>.txt` is only for camera RGB precompute. Put the camera matrix there.
-- `P2` is the camera projection matrix. In this bridge it is the 3x4 intrinsic/projection matrix that maps
-  camera-frame homogeneous points to image pixels.
-- `Tr` or `T_lidar_to_camera` is the rigid transform from LiDAR coordinates into the camera coordinate frame.
-  If your calibration tool exports camera-to-LiDAR, invert it before writing the RGB calibration file.
-
-If `P2` was calibrated for a 4K image but the frames in `image_2/` are resized, write the source image size in
-the RGB calibration file:
+The current HL320 taxonomy is defined in `labels.xml`. Example classes:
 
 ```text
-image_size: 3840 2160
-P2: ...
-Tr: ...
+0   background
+2   CAR
+5   PEDESTRIAN
+10  traffic_sign
+11  roadblock
+13  tire
+15  traffic_cone
+18  adhesive_noise
+19  Long_distance_noise
+20  underground_noise
+21  Multiple_Distances
+255 ignore
 ```
 
-or pass it explicitly:
+Use `background` for ordinary visible scene points that should participate in training.
+Use `ignore` only for points that should not contribute to training loss.
+
+## Viewing And Editing
+
+Start the tool:
 
 ```bash
-python3 scripts/precompute_point_rgb.py \
-  --dataset-dir /path/to/labeler_dataset \
-  --calib-file /path/to/koide_calib.txt \
-  --calibration-image-size 3840x2160 \
-  --camera-id P2 \
-  --overwrite
+./bin/labeler
 ```
 
-The code scales the first row of `P2` by `actual_width / calibration_width` and the second row by
-`actual_height / calibration_height` for every image it reads. This is correct for resized/compressed frames
-from the same camera when the image was not cropped or letterboxed. Cropped or padded images need crop/padding
-offsets in the calibration before precompute.
+Then select the dataset directory, for example:
+
+```text
+/home/a60116606/git_repo/point_labeler/HL320_output_sam3_manual_104
+```
+
+Useful controls:
+
+- `W/A/S/D`: move the camera.
+- Hold `Shift` while moving: faster camera movement.
+- Visuals tab `camera RGB`: show precomputed/projected camera colors when `point_rgb/` is available.
+- Visuals tab `intensity`: color by intensity using the plasma gradient.
+- Visuals tab `sphere shadows`: toggle sphere shading while keeping points rendered as spheres.
+
+The image viewer uses the CSV projection columns `Cxd/Cyd` to draw LiDAR points over `image_2/<frame>.jpg`.
+It does not use `slot/pixel` as a camera or range-image coordinate system.
+
+## Export Corrected Labels
+
+After manual correction, export labels back to the flat LitePT/fine-tune layout.
+
+Create a script such as:
 
 ```bash
-python3 scripts/prepare_for_point_labeler.py \
-  --csv-dir /path/to/data \
-  --litept-output-dir /path/to/litept_or_fused_masks \
-  --rgb-calib-file /path/to/koide_calib.txt \
-  --rgb-calibration-image-size 3840x2160 \
-  --type koide \
-  --precompute-rgb \
-  --out-dir /path/to/labeler_dataset
+#!/bin/bash
+set -e
+
+POINT_LABELER_ROOT="/home/a60116606/git_repo/point_labeler"
+LABELER_DIR="$POINT_LABELER_ROOT/HL320_output_sam3_manual_104"
+EXPORT_DIR="$LABELER_DIR/export"
+
+cd "$POINT_LABELER_ROOT/scripts"
+
+python3 export_from_point_labeler.py \
+  --labeler-dir "$LABELER_DIR" \
+  --out-dir "$EXPORT_DIR" \
+  --pseudo-label-version "manual_point_labeler_hl320_v0" \
+  --provenance "human_corrected" \
+  --manual-reviewed
 ```
 
-This writes `point_rgb/<frame_id>.rgb` as raw `uint8` RGB triplets aligned with `velodyne/<frame_id>.bin`.
-In the labeler UI, enable `camera RGB` in the Visuals tab to switch from class/remission coloring to image
-RGB coloring. Points behind the camera, outside the image, or missing RGB data are shown as black.
-Enable `intensity` in the Visuals tab to color points by the fourth point-cloud channel with a normalized plasma gradient.
-Use `sphere shadows` to toggle only the light/shadow shading on sphere impostors; the points remain rendered as
-round sphere sprites while their RGB/class/intensity colors stay flat.
-
-You can also precompute RGB for an existing labeler dataset:
+Run it:
 
 ```bash
-python3 scripts/precompute_point_rgb.py \
-  --dataset-dir /path/to/labeler_dataset \
-  --calib-file /path/to/koide_calib.txt \
-  --type koide \
-  --camera-id P2 \
-  --overwrite
+bash run_export_hl320.sh
 ```
 
+Expected output:
 
-
-
- 
-## Folder structure
-
-When loading a dataset, the data must be organized as follows:
-
-<pre>
-point cloud folder
-├── velodyne/             -- directory containing ".bin" files with Velodyne point clouds.   
-├── csv/      [optional]  -- point tables with x/y/z/intensity and optional Cxd/Cyd image coordinates.
-├── labels/   [optional]  -- label directory, will be generated if not present.  
-├── image_2/  [optional]  -- directory containing ".png" files from the color   camera.  
-├── point_rgb/ [optional] -- precomputed camera RGB colors for points.
-├── calib.txt             -- pose calibration used by the labeler. Use identity Tr for local LiDAR poses.
-├── rgb_calib.txt [optional] -- camera projection calibration used by precompute_point_rgb.py.
-└── poses.txt             -- file containing the poses of every scan.
-</pre>
-
-For raw viewing only, `calib.txt`, `poses.txt`, and `labels/` may be omitted when `settings.cfg` contains
-`allow velodyne only: true`.
-
- 
-
-## Documentation
-
-See the [wiki](https://github.com/jbehley/point_labeler/wiki) for more information on the usage and other details.
-
-
- ## Citation
-
-If you're using the tool in your research, it would be nice if you cite our [paper](https://arxiv.org/abs/1904.01416):
-
-```
-@inproceedings{behley2019iccv,
-    author = {J. Behley and M. Garbade and A. Milioto and J. Quenzel and S. Behnke and C. Stachniss and J. Gall},
-     title = {{SemanticKITTI: A Dataset for Semantic Scene Understanding of LiDAR Sequences}},
- booktitle = {Proc. of the IEEE/CVF International Conf.~on Computer Vision (ICCV)},
-      year = {2019}
-}
+```text
+HL320_output_sam3_manual_104/export/
+├── 000000/
+│   ├── semantic_mask.npy      # 1D uint16, shape (N,)
+│   └── metadata.json
+├── 000001/
+│   ├── semantic_mask.npy
+│   └── metadata.json
+└── ...
 ```
 
-We used the tool to label SemanticKITTI, which contains overall over 40.000 scans organized in 20 sequences. 
+The exported `metadata.json` is generated from the current `labels.xml`, so class ids, names, and classes added in the
+UI are preserved.
+
+## Fine-Tune LitePT After Export
+
+Use the exported directory as `--export-dir` and the same labeler dataset as `--labeler-dir`:
+
+```bash
+PROJECT_ROOT="/home/a60116606/git_repo/noise_seg/pipline_v0"
+LITEPT_ROOT="/home/a60116606/git_repo/LitePT"
+POINT_LABELER_ROOT="/home/a60116606/git_repo/point_labeler"
+
+LABELER_DIR="$POINT_LABELER_ROOT/HL320_output_sam3_manual_104"
+EXPORT_DIR="$LABELER_DIR/export"
+OUT_DIR="$PROJECT_ROOT/output/HL320_output_sam3_manual_104/fine_tune"
+
+cd "$PROJECT_ROOT/scripts"
+
+/home/a60116606/miniconda3/envs/litept/bin/python finetune_litept.py \
+  --litept-root "$LITEPT_ROOT" \
+  --export-dir "$EXPORT_DIR" \
+  --labeler-dir "$LABELER_DIR" \
+  --output-dir "$OUT_DIR" \
+  --epochs 100 \
+  --val-ratio 0.10 \
+  --batch-size 2 \
+  --num-workers 4 \
+  --grid-size 0.05 \
+  --head-lr 1e-4 \
+  --backbone-lr 1e-5 \
+  --class-weighting sqrt_inverse \
+  --max-class-weight 10 \
+  --noise-frame-repeat 6 \
+  --overwrite \
+  --seed 42 \
+  --num-gpus 1 \
+  --force-torch-pointrope
+```
+
+## Sanity Checks
+
+Before fine-tuning, check:
+
+- `labels/<frame>.label` count equals CSV row count.
+- `export/<frame>/semantic_mask.npy` shape is `(N,)`.
+- `velodyne/<frame>.bin` contains `N * 4` float32 values.
+- Background is `0`, ignored points are `255`.
+- `Cxd/Cyd` are present in CSV if you want image-projection visualization.
+
+The key invariant is always:
+
+```text
+CSV row i == velodyne point i == label i == exported semantic_mask[i]
+```

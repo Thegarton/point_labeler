@@ -1,0 +1,11 @@
+{
+  "name": "point-labeler",
+  "version-string": "1.0",
+  "dependencies": [
+    "boost-filesystem",
+    "boost-system",
+    "eigen3",
+    "glew",
+    "qt5-base"
+  ]
+}

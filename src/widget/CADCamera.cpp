@@ -1,4 +1,6 @@
 #include "CADCamera.h"
+#include "data/math_constants.h"
+
 #include <glow/glutil.h>
 #include <iostream>
 
